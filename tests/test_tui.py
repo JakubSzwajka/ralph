@@ -1001,7 +1001,7 @@ class TestIterationListUnit:
         from ralph.core import IterationResult
 
         result = IterationResult(
-            iteration=1, text="done", is_complete=True, cost_usd=0.01, duration_s=5.0
+            iteration=1, text="done", is_complete=True, duration_s=5.0
         )
         widget = IterationList()
         label = widget._format_item(result)
@@ -1009,14 +1009,12 @@ class TestIterationListUnit:
         assert "green" in label
         assert "✓" in label
         assert "5.0s" in label
-        assert "$0.0100" in label
-
     def test_format_item_incomplete_has_yellow_dot(self):
         """_format_item uses a yellow dot badge for incomplete iterations."""
         from ralph.core import IterationResult
 
         result = IterationResult(
-            iteration=2, text="partial", is_complete=False, cost_usd=0.005, duration_s=12.3
+            iteration=2, text="partial", is_complete=False, duration_s=12.3
         )
         widget = IterationList()
         label = widget._format_item(result)
@@ -1024,17 +1022,6 @@ class TestIterationListUnit:
         assert "yellow" in label
         assert "●" in label
         assert "12.3s" in label
-
-    def test_format_item_cost_formatted_to_four_decimals(self):
-        """_format_item formats cost to 4 decimal places."""
-        from ralph.core import IterationResult
-
-        result = IterationResult(
-            iteration=1, text="", is_complete=False, cost_usd=0.123456, duration_s=1.0
-        )
-        widget = IterationList()
-        label = widget._format_item(result)
-        assert "$0.1235" in label  # rounds to 4 decimal places
 
     def test_results_list_starts_empty(self):
         """_results list is empty before any add_result calls."""
@@ -1084,7 +1071,7 @@ async def test_iteration_list_add_result_adds_item():
     async with _TestApp().run_test(headless=True) as pilot:
         widget = pilot.app.query_one(IterationList)
         result = IterationResult(
-            iteration=1, text="output", is_complete=True, duration_s=5.0, cost_usd=0.01
+            iteration=1, text="output", is_complete=True, duration_s=5.0
         )
         widget.add_result(result)
         await pilot.pause()
@@ -1132,7 +1119,7 @@ async def test_iteration_list_selection_emits_iteration_selected():
         widget = pilot.app.query_one(IterationList)
         # Add a result with a distinctive iteration number.
         result = IterationResult(
-            iteration=7, text="output", is_complete=True, duration_s=5.0, cost_usd=0.01
+            iteration=7, text="output", is_complete=True, duration_s=5.0
         )
         widget.add_result(result)
         await pilot.pause()
@@ -1383,7 +1370,7 @@ class TestRunScreenTask9Messages:
     def test_iteration_completed_stores_result(self):
         """IterationCompleted carries the IterationResult."""
         result = IterationResult(
-            iteration=1, text="done", is_complete=True, cost_usd=0.01, duration_s=5.0
+            iteration=1, text="done", is_complete=True, duration_s=5.0
         )
         msg = RunScreen.IterationCompleted(result)
         assert msg.result is result
@@ -1392,7 +1379,7 @@ class TestRunScreenTask9Messages:
         """RunFinished carries the full list of IterationResults."""
         results = [
             IterationResult(
-                iteration=1, text="a", is_complete=False, cost_usd=0.01, duration_s=1.0
+                iteration=1, text="a", is_complete=False, duration_s=1.0
             )
         ]
         msg = RunScreen.RunFinished(results)
@@ -1404,7 +1391,7 @@ async def test_run_screen_worker_chunks_stored_and_written(monkeypatch, tmp_path
     """Worker drives OutputChunk messages: chunks are stored and written to pane."""
     chunks_to_yield = ["Hello ", "world\n"]
     result = IterationResult(
-        iteration=1, text="Hello world\n", is_complete=False, cost_usd=0.01, duration_s=2.0
+        iteration=1, text="Hello world\n", is_complete=False, duration_s=2.0
     )
 
     async def _mock_run(config):
@@ -1436,7 +1423,7 @@ async def test_run_screen_worker_iteration_outputs_populated(monkeypatch, tmp_pa
     """Worker populates _iteration_outputs as it receives chunks."""
     chunks_to_yield = ["chunk A", "chunk B"]
     result = IterationResult(
-        iteration=1, text="chunk A chunk B", is_complete=False, cost_usd=0.01, duration_s=2.0
+        iteration=1, text="chunk A chunk B", is_complete=False, duration_s=2.0
     )
 
     async def _mock_run(config):
@@ -1473,7 +1460,7 @@ async def test_run_screen_worker_iteration_outputs_populated(monkeypatch, tmp_pa
 async def test_run_screen_worker_iteration_completed_populates_list(monkeypatch, tmp_path):
     """IterationCompleted message adds to the iteration list sidebar."""
     result = IterationResult(
-        iteration=1, text="done", is_complete=False, cost_usd=0.01, duration_s=3.0
+        iteration=1, text="done", is_complete=False, duration_s=3.0
     )
 
     async def _mock_run(config):
@@ -1530,7 +1517,7 @@ async def test_summary_screen_stores_config_and_results():
     """SummaryScreen correctly stores config and results passed from RunFinished."""
     config = RalphConfig(prd=Path("PRD.md"), iterations=1)
     results = [
-        IterationResult(iteration=1, text="hi", is_complete=True, cost_usd=0.01, duration_s=1.0)
+        IterationResult(iteration=1, text="hi", is_complete=True, duration_s=1.0)
     ]
     screen = SummaryScreen(config=config, results=results)
     assert screen._config is config
@@ -1627,7 +1614,7 @@ async def test_iteration_completed_refreshes_task_panel(monkeypatch, tmp_path: P
     tasks_file.write_text("- [ ] Task A\n", encoding="utf-8")
 
     result = IterationResult(
-        iteration=1, text="done", is_complete=False, cost_usd=0.0, duration_s=1.0
+        iteration=1, text="done", is_complete=False, duration_s=1.0
     )
 
     # The mock generator yields the result; before we check, update the file
@@ -1677,7 +1664,7 @@ async def test_iteration_completed_updates_sub_title_when_prd_done(
     prd_file.write_text("---\nstatus: in-progress\n---\n# My PRD\n", encoding="utf-8")
 
     result = IterationResult(
-        iteration=1, text="done", is_complete=True, cost_usd=0.0, duration_s=1.0
+        iteration=1, text="done", is_complete=True, duration_s=1.0
     )
 
     async def _mock_run(config):
@@ -1953,7 +1940,7 @@ async def test_run_screen_stop_early_pushes_summary(monkeypatch, tmp_path):
         yield (
             1,
             IterationResult(
-                iteration=1, text="partial", is_complete=False, cost_usd=0.0, duration_s=1.0
+                iteration=1, text="partial", is_complete=False, duration_s=1.0
             ),
         )
         # Block here so the async-for loop does not end naturally.
@@ -2006,14 +1993,12 @@ class TestSummaryScreenStats:
         *,
         iteration: int = 1,
         is_complete: bool = False,
-        cost_usd: float = 0.01,
         duration_s: float = 2.0,
     ) -> IterationResult:
         return IterationResult(
             iteration=iteration,
             text="",
             is_complete=is_complete,
-            cost_usd=cost_usd,
             duration_s=duration_s,
         )
 
@@ -2022,12 +2007,6 @@ class TestSummaryScreenStats:
         screen = SummaryScreen()
         stats = screen._render_stats()
         assert "Iterations:  0" in stats
-
-    def test_empty_results_shows_zero_cost(self):
-        """With no results, cost is $0.0000."""
-        screen = SummaryScreen()
-        stats = screen._render_stats()
-        assert "$0.0000" in stats
 
     def test_empty_results_shows_zero_time(self):
         """With no results, time is 0.0s."""
@@ -2057,16 +2036,6 @@ class TestSummaryScreenStats:
         ]
         screen = SummaryScreen(results=results)
         assert "Iterations:  3" in screen._render_stats()
-
-    def test_cost_summed_across_iterations(self):
-        """Total cost is the sum of all results' cost_usd."""
-        results = [
-            self._make_result(cost_usd=0.01),
-            self._make_result(cost_usd=0.02),
-        ]
-        screen = SummaryScreen(results=results)
-        stats = screen._render_stats()
-        assert "$0.0300" in stats
 
     def test_time_summed_across_iterations(self):
         """Total time is the sum of all results' duration_s."""
@@ -2107,7 +2076,7 @@ class TestSummaryScreenTitle:
                 iteration=1,
                 text="done",
                 is_complete=True,
-                cost_usd=0.01,
+
                 duration_s=1.0,
             )
         ]
@@ -2123,7 +2092,7 @@ class TestSummaryScreenTitle:
                 iteration=1,
                 text="partial",
                 is_complete=False,
-                cost_usd=0.0,
+
                 duration_s=0.5,
             )
         ]
@@ -2139,7 +2108,7 @@ async def test_summary_screen_compose_shows_title_and_stats():
 
     results = [
         IterationResult(
-            iteration=1, text="done", is_complete=True, cost_usd=0.05, duration_s=3.0
+            iteration=1, text="done", is_complete=True, duration_s=3.0
         )
     ]
     app = RalphApp()
@@ -2311,7 +2280,7 @@ class TestHistoryScreenLoadRuns:
             "prd": "/path/to/README.md",
             "iterations_requested": 10,
             "iterations_completed": 3,
-            "total_cost_usd": 0.05,
+
             "total_duration_s": 120.0,
             "status": "complete",
         }
@@ -2401,7 +2370,7 @@ class TestHistoryScreenHelpers:
             "prd": "/path/to/run-history/README.md",
             "iterations_requested": 10,
             "iterations_completed": 3,
-            "total_cost_usd": 0.05,
+
             "total_duration_s": 120.5,
             "status": "complete",
             "_run_dir": tmp_path,
@@ -2410,7 +2379,6 @@ class TestHistoryScreenHelpers:
         detail = screen._render_run_detail(meta)
         assert "2026-02-24T11-27-39" in detail
         assert "run-history" in detail
-        assert "0.0500" in detail
         assert "120.5s" in detail
 
     def test_render_run_detail_lists_iteration_files(self, tmp_path: Path):
@@ -2529,7 +2497,7 @@ async def test_history_screen_populates_table_from_runs_dir(tmp_path: Path):
         "prd": "/path/to/run-history/README.md",
         "iterations_requested": 10,
         "iterations_completed": 2,
-        "total_cost_usd": 0.0,
+
         "total_duration_s": 531.85,
         "status": "max-iterations",
     }

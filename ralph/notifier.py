@@ -24,7 +24,6 @@ class DiscordNotifier:
         self,
         iteration: int,
         summary: str,
-        cost_usd: float,
         duration_s: float,
         is_complete: bool,
     ) -> str:
@@ -34,7 +33,7 @@ class DiscordNotifier:
         truncated = summary[:200] + "..." if len(summary) > 200 else summary
         lines = [
             f"**ralph** — iteration {iteration}",
-            f"status: {status}  |  duration: {duration_s:.1f}s  |  cost: ${cost_usd:.4f}",
+            f"status: {status}  |  duration: {duration_s:.1f}s",
         ]
         if truncated:
             lines.append(f"```\n{truncated}\n```")
@@ -44,7 +43,6 @@ class DiscordNotifier:
         self,
         iteration: int,
         summary: str,
-        cost_usd: float,
         duration_s: float,
         is_complete: bool,
     ) -> None:
@@ -60,7 +58,7 @@ class DiscordNotifier:
             return
 
         content = self.format_message(
-            iteration, summary, cost_usd, duration_s, is_complete
+            iteration, summary, duration_s, is_complete
         )
         payload: dict[str, Any] = {"content": content}
 

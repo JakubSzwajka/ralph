@@ -232,7 +232,6 @@ class RunRecorder:
         else:
             meta = {}
 
-        total_cost = sum(r.cost_usd for r in results)
         total_duration = sum(r.duration_s for r in results)
         iterations_completed = len(results)
 
@@ -247,7 +246,6 @@ class RunRecorder:
             {
                 "completed_at": _now_iso(),
                 "iterations_completed": iterations_completed,
-                "total_cost_usd": total_cost,
                 "total_duration_s": total_duration,
                 "status": status,
             }

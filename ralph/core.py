@@ -48,7 +48,6 @@ class IterationResult:
     iteration: int
     text: str
     is_complete: bool
-    cost_usd: float = 0.0
     duration_s: float = 0.0
 
 
@@ -106,7 +105,6 @@ async def run_iteration(
     )
 
     full_text: list[str] = []
-    cost = 0.0
 
     # Open the iteration writer if a recorder was provided.  We enter the
     # context manager manually so we can wrap the entire async loop.
@@ -187,7 +185,6 @@ async def run_iteration(
         iteration=iteration,
         text=combined,
         is_complete=COMPLETION_SIGNAL in combined,
-        cost_usd=cost,
         duration_s=elapsed,
     )
 

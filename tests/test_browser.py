@@ -210,7 +210,7 @@ class TestScanPrds:
         project_root = Path(__file__).parent.parent
         result = scan_prds(project_root)
         prd = next(p for p in result if p.slug == "tui-control-panel")
-        assert prd.status == "draft"
+        assert prd.status == "done"
         assert prd.title == "TUI Control Panel — Ralph as a Persistent Textual App"
         assert any(f.name == "tasks.md" for f in prd.task_files)
 

@@ -352,11 +352,11 @@ class TestRealTasksFile:
         for item in items[:13]:
             assert item.done is True, f"Task {item.index} should be done"
 
-    def test_remaining_items_are_pending(self, real_tasks_path: Path):
-        """Task 14 is still pending."""
+    def test_remaining_items_are_done(self, real_tasks_path: Path):
+        """Task 14 is now done."""
         items = parse_tasks(real_tasks_path)
         for item in items[13:]:
-            assert item.done is False, f"Task {item.index} should be pending"
+            assert item.done is True, f"Task {item.index} should be done"
 
     def test_indices_are_contiguous(self, real_tasks_path: Path):
         items = parse_tasks(real_tasks_path)

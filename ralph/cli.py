@@ -61,10 +61,8 @@ def _build_status_table(
         summary = Table(show_header=True, show_edge=False, pad_edge=False)
         summary.add_column("#", style="bold", width=4)
         summary.add_column("Duration", width=10)
-        summary.add_column("Cost", width=10)
         summary.add_column("Status", width=12)
 
-        total_cost = 0.0
         for r in results:
             status_str = (
                 "[green]COMPLETE[/green]" if r.is_complete else "[blue]done[/blue]"
@@ -72,13 +70,10 @@ def _build_status_table(
             summary.add_row(
                 str(r.iteration),
                 f"{r.duration_s:.1f}s",
-                f"${r.cost_usd:.4f}",
                 status_str,
             )
-            total_cost += r.cost_usd
 
         grid.add_row(summary)
-        grid.add_row(Text(f"\n  Total cost: ${total_cost:.4f}", style="bold"))
 
     # Live output tail
     if tail_lines:
@@ -180,9 +175,6 @@ def _show_run_detail(runs_dir: Path, run_id: str, show_iteration: int | None) ->
     prd_path_str = meta.get("prd", "?")
     prd_name = Path(prd_path_str).parent.name or Path(prd_path_str).name or "?"
 
-    cost_val = meta.get("total_cost_usd")
-    cost_str = f"${cost_val:.4f}" if cost_val is not None else "—"
-
     dur_val = meta.get("total_duration_s")
     dur_str = f"{dur_val:.1f}s" if dur_val is not None else "—"
 
@@ -201,7 +193,6 @@ def _show_run_detail(runs_dir: Path, run_id: str, show_iteration: int | None) ->
         f"[bold]Permission mode:[/bold]     {meta.get('permission_mode') or '—'}",
         f"[bold]Iterations requested:[/bold] {meta.get('iterations_requested', '—')}",
         f"[bold]Iterations completed:[/bold] {meta.get('iterations_completed', '—')}",
-        f"[bold]Total cost:[/bold]          {cost_str}",
         f"[bold]Total duration:[/bold]      {dur_str}",
         f"[bold]Status:[/bold]              {status_styled}",
         f"[bold]Started:[/bold]             {meta.get('started_at', '—')}",
@@ -334,7 +325,6 @@ def _cmd_runs(argv: list[str] | None = None) -> int:
     table.add_column("Run ID", style="cyan", no_wrap=True)
     table.add_column("PRD", style="bold")
     table.add_column("Iterations", justify="right")
-    table.add_column("Cost", justify="right")
     table.add_column("Duration", justify="right")
     table.add_column("Status")
 
@@ -349,9 +339,6 @@ def _cmd_runs(argv: list[str] | None = None) -> int:
 
         iterations = str(meta.get("iterations_completed", "—"))
 
-        cost_val = meta.get("total_cost_usd")
-        cost = f"${cost_val:.4f}" if cost_val is not None else "—"
-
         dur_val = meta.get("total_duration_s")
         duration = f"{dur_val:.1f}s" if dur_val is not None else "—"
 
@@ -362,7 +349,7 @@ def _cmd_runs(argv: list[str] | None = None) -> int:
             "error": "[red]error[/red]",
         }.get(status, f"[dim]{status}[/dim]")
 
-        table.add_row(run_id, prd_name, iterations, cost, duration, status_styled)
+        table.add_row(run_id, prd_name, iterations, duration, status_styled)
 
     console.print(table)
     return 0
@@ -561,7 +548,6 @@ async def _run_headless(config: RalphConfig) -> int:
                     await notifier.send(
                         iteration=item.iteration,
                         summary=item.text,
-                        cost_usd=item.cost_usd,
                         duration_s=item.duration_s,
                         is_complete=item.is_complete,
                     )
@@ -570,7 +556,6 @@ async def _run_headless(config: RalphConfig) -> int:
                     break
 
     # Final summary
-    total_cost = sum(r.cost_usd for r in results)
     total_time = sum(r.duration_s for r in results)
     completed = any(r.is_complete for r in results)
 
@@ -579,7 +564,7 @@ async def _run_headless(config: RalphConfig) -> int:
         console.print(
             Panel(
                 f"[bold green]PRD COMPLETE[/bold green] after {len(results)} iteration(s)\n"
-                f"Total cost: ${total_cost:.4f}  Total time: {total_time:.1f}s",
+                f"Total time: {total_time:.1f}s",
                 border_style="green",
             )
         )
@@ -588,7 +573,7 @@ async def _run_headless(config: RalphConfig) -> int:
         console.print(
             Panel(
                 f"[bold yellow]Reached max iterations ({config.iterations})[/bold yellow]\n"
-                f"Total cost: ${total_cost:.4f}  Total time: {total_time:.1f}s",
+                f"Total time: {total_time:.1f}s",
                 border_style="yellow",
             )
         )

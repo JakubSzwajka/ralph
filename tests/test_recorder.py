@@ -353,7 +353,7 @@ class TestRunRecorderMeta:
         recorder = RunRecorder(tmp_path)
         recorder.write_meta_start(config)
         results = [
-            IterationResult(iteration=1, text="done", is_complete=True, cost_usd=0.01, duration_s=2.0)
+            IterationResult(iteration=1, text="done", is_complete=True, duration_s=2.0)
         ]
         recorder.write_meta_end(results)
 
@@ -370,7 +370,7 @@ class TestRunRecorderMeta:
         recorder = RunRecorder(tmp_path)
         recorder.write_meta_start(config)
         results = [
-            IterationResult(iteration=1, text="done", is_complete=True, cost_usd=0.0, duration_s=1.0)
+            IterationResult(iteration=1, text="done", is_complete=True, duration_s=1.0)
         ]
         recorder.write_meta_end(results)
 
@@ -385,8 +385,8 @@ class TestRunRecorderMeta:
         recorder = RunRecorder(tmp_path)
         recorder.write_meta_start(config)
         results = [
-            IterationResult(iteration=1, text="work", is_complete=False, cost_usd=0.01, duration_s=1.0),
-            IterationResult(iteration=2, text="more", is_complete=False, cost_usd=0.01, duration_s=1.0),
+            IterationResult(iteration=1, text="work", is_complete=False, duration_s=1.0),
+            IterationResult(iteration=2, text="more", is_complete=False, duration_s=1.0),
         ]
         recorder.write_meta_end(results)
 
@@ -413,14 +413,13 @@ class TestRunRecorderMeta:
         recorder = RunRecorder(tmp_path)
         recorder.write_meta_start(config)
         results = [
-            IterationResult(iteration=1, text="a", is_complete=False, cost_usd=0.05, duration_s=3.0),
-            IterationResult(iteration=2, text="b", is_complete=True, cost_usd=0.10, duration_s=7.0),
+            IterationResult(iteration=1, text="a", is_complete=False, duration_s=3.0),
+            IterationResult(iteration=2, text="b", is_complete=True, duration_s=7.0),
         ]
         recorder.write_meta_end(results)
 
         meta = json.loads((recorder.run_dir / "meta.json").read_text())
         assert meta["iterations_completed"] == 2
-        assert abs(meta["total_cost_usd"] - 0.15) < 1e-9
         assert abs(meta["total_duration_s"] - 10.0) < 1e-9
 
     def test_meta_json_is_readable_without_start(self, tmp_path: Path) -> None:
@@ -430,7 +429,7 @@ class TestRunRecorderMeta:
 
         recorder = RunRecorder(tmp_path)
         results = [
-            IterationResult(iteration=1, text="x", is_complete=True, cost_usd=0.0, duration_s=0.0)
+            IterationResult(iteration=1, text="x", is_complete=True, duration_s=0.0)
         ]
         # Should not raise
         recorder.write_meta_end(results)

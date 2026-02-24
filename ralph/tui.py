@@ -312,10 +312,10 @@ class OutputPane(RichLog):
 
 
 class IterationList(ListView):
-    """Right sidebar listing completed iterations with duration/cost/status.
+    """Right sidebar listing completed iterations with duration/status.
 
     Each item shows the iteration number, a status badge (✓ for completed, ●
-    for otherwise finished), the wall-clock duration, and the API cost.
+    for otherwise finished) and the wall-clock duration.
 
     Selecting an item emits :class:`IterationSelected` which the run screen
     uses to swap the output pane to that iteration's recorded output.  The
@@ -378,8 +378,7 @@ class IterationList(ListView):
         n = result.iteration
         badge = "[green]✓[/green]" if result.is_complete else "[yellow]●[/yellow]"
         duration = f"{result.duration_s:.1f}s"
-        cost = f"${result.cost_usd:.4f}"
-        return f"[bold]#{n}[/bold] {badge} [dim]{duration} {cost}[/dim]"
+        return f"[bold]#{n}[/bold] {badge} [dim]{duration}[/dim]"
 
     # ------------------------------------------------------------------
     # Public API
@@ -737,7 +736,6 @@ class RunScreen(Screen[None]):
                     await notifier.send(
                         iteration=item.iteration,
                         summary=item.text,
-                        cost_usd=item.cost_usd,
                         duration_s=item.duration_s,
                         is_complete=item.is_complete,
                     )
@@ -916,7 +914,7 @@ class SummaryScreen(Screen[None]):
 
     * **Title** — "Run Complete ✓" or "Run Stopped" depending on whether any
       iteration reported ``is_complete=True``.
-    * **Stats** — iteration count, total cost, total wall-clock time, and a
+    * **Stats** — iteration count, total wall-clock time, and a
       status badge.
     * **Task snapshot** — the final state of the task file parsed from disk
       (shown when ``config.tasks`` is set and the file exists).
@@ -958,11 +956,10 @@ class SummaryScreen(Screen[None]):
     def _render_stats(self) -> str:
         """Return a Rich markup string summarising the run statistics.
 
-        Includes: status badge, iteration count, total cost, and total time.
+        Includes: status badge, iteration count, and total time.
         Empty results produce an "n/a" placeholder for numeric fields.
         """
         n = len(self._results)
-        total_cost = sum(r.cost_usd for r in self._results)
         total_time_s = sum(r.duration_s for r in self._results)
         is_complete = any(r.is_complete for r in self._results)
 
@@ -975,13 +972,11 @@ class SummaryScreen(Screen[None]):
             return (
                 f"Status:      {status_markup}\n"
                 f"Iterations:  {n}\n"
-                f"Total cost:  ${total_cost:.4f}\n"
                 f"Total time:  {total_time_s:.1f}s"
             )
         return (
             f"Status:      {status_markup}\n"
             "Iterations:  0\n"
-            "Total cost:  $0.0000\n"
             "Total time:  0.0s"
         )
 
@@ -1175,7 +1170,7 @@ class HistoryScreen(Screen[None]):
         """Return Rich markup for the detail pane of the given run.
 
         Shows key metadata fields from ``meta.json`` (run ID, PRD, model,
-        permission mode, iteration counts, cost, duration, timestamps, and
+        permission mode, iteration counts, duration, timestamps, and
         status).  When the run directory is available, also lists the
         iteration JSONL files with their sizes.
 
@@ -1194,7 +1189,6 @@ class HistoryScreen(Screen[None]):
         perm = meta.get("permission_mode") or "—"
         iters_req = meta.get("iterations_requested", "—")
         iters_done = meta.get("iterations_completed", "—")
-        cost = meta.get("total_cost_usd")
         duration = meta.get("total_duration_s")
         started = str(meta.get("started_at", "—"))
         completed = str(meta.get("completed_at") or "—")
@@ -1205,8 +1199,6 @@ class HistoryScreen(Screen[None]):
         lines.append(f"[bold]Model:[/bold]      {escape(str(model))}")
         lines.append(f"[bold]Permission:[/bold] {escape(str(perm))}")
         lines.append(f"[bold]Iterations:[/bold] {iters_done}/{iters_req}")
-        if cost is not None:
-            lines.append(f"[bold]Cost:[/bold]       ${cost:.4f}")
         if duration is not None:
             lines.append(f"[bold]Duration:[/bold]   {duration:.1f}s")
         lines.append(f"[bold]Started:[/bold]    {escape(started[:19])}")
@@ -1245,10 +1237,10 @@ class HistoryScreen(Screen[None]):
         """Load run history and populate the DataTable."""
         self._runs = self._load_runs()
         table: DataTable[str] = self.query_one("#history-table", DataTable)
-        table.add_columns("Run ID", "PRD", "Iterations", "Cost", "Duration", "Status")
+        table.add_columns("Run ID", "PRD", "Iterations", "Duration", "Status")
 
         if not self._runs:
-            table.add_row("—", "No run history found", "—", "—", "—", "—")
+            table.add_row("—", "No run history found", "—", "—", "—")
             return
 
         for meta in self._runs:
@@ -1262,12 +1254,10 @@ class HistoryScreen(Screen[None]):
                 iters = f"?/{iters_req}"
             else:
                 iters = "—"
-            cost = meta.get("total_cost_usd")
-            cost_str = f"${cost:.4f}" if cost is not None else "—"
             duration = meta.get("total_duration_s")
             dur_str = f"{duration:.1f}s" if duration is not None else "—"
             status = str(meta.get("status") or "in-progress")
-            table.add_row(run_id, prd, iters, cost_str, dur_str, status)
+            table.add_row(run_id, prd, iters, dur_str, status)
 
     # ------------------------------------------------------------------
     # Event handlers

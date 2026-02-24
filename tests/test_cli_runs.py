@@ -21,7 +21,6 @@ def _make_meta(
     *,
     prd: str = "docs/prds/my-prd/README.md",
     iterations_completed: int | None = None,
-    total_cost_usd: float | None = None,
     total_duration_s: float | None = None,
     status: str | None = None,
 ) -> Path:
@@ -39,8 +38,6 @@ def _make_meta(
     }
     if iterations_completed is not None:
         meta["iterations_completed"] = iterations_completed
-    if total_cost_usd is not None:
-        meta["total_cost_usd"] = total_cost_usd
     if total_duration_s is not None:
         meta["total_duration_s"] = total_duration_s
     if status is not None:
@@ -103,7 +100,7 @@ class TestCmdRunsSingleRun:
             tmp_path,
             "2026-02-24T10-00-00",
             iterations_completed=3,
-            total_cost_usd=0.0123,
+
             total_duration_s=45.0,
             status="complete",
         )
@@ -116,7 +113,7 @@ class TestCmdRunsSingleRun:
             "2026-02-24T10-00-00",
             prd="docs/prds/run-history/README.md",
             iterations_completed=3,
-            total_cost_usd=0.0123,
+
             total_duration_s=45.0,
             status="complete",
         )
@@ -140,7 +137,7 @@ class TestPrdNameExtraction:
             prd="docs/prds/run-history/README.md",
             status="complete",
             iterations_completed=1,
-            total_cost_usd=0.0,
+
             total_duration_s=1.0,
         )
         # Capture table rows via a spy on Table.add_row
@@ -167,7 +164,7 @@ class TestPrdNameExtraction:
             prd="PRD.md",
             status="complete",
             iterations_completed=1,
-            total_cost_usd=0.0,
+
             total_duration_s=1.0,
         )
         from rich.table import Table
@@ -198,7 +195,7 @@ class TestCmdRunsSorting:
             "2026-02-24T08-00-00",
             status="complete",
             iterations_completed=1,
-            total_cost_usd=0.01,
+
             total_duration_s=10.0,
         )
         _make_meta(
@@ -206,7 +203,7 @@ class TestCmdRunsSorting:
             "2026-02-24T12-00-00",
             status="complete",
             iterations_completed=2,
-            total_cost_usd=0.02,
+
             total_duration_s=20.0,
         )
         _make_meta(
@@ -214,7 +211,7 @@ class TestCmdRunsSorting:
             "2026-02-24T10-00-00",
             status="complete",
             iterations_completed=3,
-            total_cost_usd=0.03,
+
             total_duration_s=30.0,
         )
 
@@ -245,11 +242,11 @@ class TestCmdRunsSorting:
 
 class TestCmdRunsInProgress:
     def test_in_progress_run_shows_dashes_for_missing_fields(self, tmp_path: Path) -> None:
-        """A run without completion data shows '—' for cost/duration/iterations."""
+        """A run without completion data shows '—' for duration/iterations."""
         _make_meta(
             tmp_path,
             "2026-02-24T10-00-00",
-            # No iterations_completed, total_cost_usd, total_duration_s, or status
+            # No iterations_completed, total_duration_s, or status
         )
         from rich.table import Table
         rows_added: list[tuple] = []
@@ -264,10 +261,9 @@ class TestCmdRunsInProgress:
 
         assert len(rows_added) >= 1
         row = rows_added[0]
-        # iterations, cost, duration should be "—"
+        # iterations, duration should be "—"
         assert row[2] == "—"  # iterations
-        assert row[3] == "—"  # cost
-        assert row[4] == "—"  # duration
+        assert row[3] == "—"  # duration
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +284,7 @@ class TestCmdRunsStatusStyling:
         with patch.object(Table, "add_row", spy_add_row):
             _cmd_runs(["--cwd", str(tmp_path)])
 
-        return rows_added[0][5]  # status column
+        return rows_added[0][4]  # status column
 
     def test_complete_status_has_green_markup(self, tmp_path: Path) -> None:
         _make_meta(
@@ -296,7 +292,7 @@ class TestCmdRunsStatusStyling:
             "2026-02-24T10-00-00",
             status="complete",
             iterations_completed=1,
-            total_cost_usd=0.0,
+
             total_duration_s=1.0,
         )
         status_cell = self._get_status_cell(tmp_path, "2026-02-24T10-00-00")
@@ -309,7 +305,7 @@ class TestCmdRunsStatusStyling:
             "2026-02-24T10-00-00",
             status="max-iterations",
             iterations_completed=5,
-            total_cost_usd=0.1,
+
             total_duration_s=100.0,
         )
         status_cell = self._get_status_cell(tmp_path, "2026-02-24T10-00-00")
@@ -322,7 +318,7 @@ class TestCmdRunsStatusStyling:
             "2026-02-24T10-00-00",
             status="error",
             iterations_completed=0,
-            total_cost_usd=0.0,
+
             total_duration_s=0.0,
         )
         status_cell = self._get_status_cell(tmp_path, "2026-02-24T10-00-00")
@@ -345,7 +341,7 @@ class TestCmdRunsCorruptData:
             "2026-02-24T11-00-00",
             status="complete",
             iterations_completed=1,
-            total_cost_usd=0.01,
+
             total_duration_s=5.0,
         )
         from rich.table import Table
@@ -374,7 +370,7 @@ class TestCmdRunsCorruptData:
             "2026-02-24T11-00-00",
             status="complete",
             iterations_completed=1,
-            total_cost_usd=0.01,
+
             total_duration_s=5.0,
         )
         from rich.table import Table
@@ -470,7 +466,7 @@ class TestShowRunDetailPanel:
             run_id,
             prd="docs/prds/my-prd/README.md",
             iterations_completed=2,
-            total_cost_usd=0.05,
+
             total_duration_s=12.3,
             status="complete",
         )
@@ -526,7 +522,7 @@ class TestShowRunDetailIterationsTable:
     def test_no_iteration_files_prints_no_files_message(self, tmp_path: Path) -> None:
         run_id = "2026-02-24T10-00-00"
         _make_meta(tmp_path, run_id, status="complete", iterations_completed=0,
-                   total_cost_usd=0.0, total_duration_s=0.0)
+                   total_duration_s=0.0)
         runs_dir = tmp_path / ".ralph" / "runs"
         with patch("ralph.cli.console") as mock_console:
             result = _show_run_detail(runs_dir, run_id, None)
@@ -537,7 +533,7 @@ class TestShowRunDetailIterationsTable:
     def test_iteration_table_has_row_per_jsonl_file(self, tmp_path: Path) -> None:
         run_id = "2026-02-24T10-00-00"
         run_dir = _make_meta(tmp_path, run_id, status="complete", iterations_completed=2,
-                             total_cost_usd=0.05, total_duration_s=10.0)
+                             total_duration_s=10.0)
         # Create two iteration files
         _make_iteration_jsonl(run_dir, 1, [
             {"type": "text", "text": "hello", "timestamp": "2026-02-24T10:00:00+00:00"},
@@ -569,7 +565,7 @@ class TestShowRunDetailIterationsTable:
     def test_event_count_in_table(self, tmp_path: Path) -> None:
         run_id = "2026-02-24T10-00-00"
         run_dir = _make_meta(tmp_path, run_id, status="complete", iterations_completed=1,
-                             total_cost_usd=0.01, total_duration_s=5.0)
+                             total_duration_s=5.0)
         _make_iteration_jsonl(run_dir, 1, [
             {"type": "text", "text": "a", "timestamp": "2026-02-24T10:00:00+00:00"},
             {"type": "text", "text": "b", "timestamp": "2026-02-24T10:00:01+00:00"},
@@ -596,7 +592,7 @@ class TestShowRunDetailIterationsTable:
     def test_tool_calls_shown_in_table(self, tmp_path: Path) -> None:
         run_id = "2026-02-24T10-00-00"
         run_dir = _make_meta(tmp_path, run_id, status="complete", iterations_completed=1,
-                             total_cost_usd=0.01, total_duration_s=5.0)
+                             total_duration_s=5.0)
         _make_iteration_jsonl(run_dir, 1, [
             {"type": "text", "text": "hi", "timestamp": "2026-02-24T10:00:00+00:00"},
             {"type": "tool_use", "name": "Bash", "input": "ls", "timestamp": "2026-02-24T10:00:01+00:00"},
@@ -626,7 +622,7 @@ class TestShowRunDetailIterationsTable:
     def test_no_tool_calls_shows_dash(self, tmp_path: Path) -> None:
         run_id = "2026-02-24T10-00-00"
         run_dir = _make_meta(tmp_path, run_id, status="complete", iterations_completed=1,
-                             total_cost_usd=0.0, total_duration_s=1.0)
+                             total_duration_s=1.0)
         _make_iteration_jsonl(run_dir, 1, [
             {"type": "text", "text": "just text", "timestamp": "2026-02-24T10:00:00+00:00"},
         ])
@@ -649,7 +645,7 @@ class TestShowRunDetailIterationsTable:
     def test_duration_computed_from_timestamps(self, tmp_path: Path) -> None:
         run_id = "2026-02-24T10-00-00"
         run_dir = _make_meta(tmp_path, run_id, status="complete", iterations_completed=1,
-                             total_cost_usd=0.0, total_duration_s=10.0)
+                             total_duration_s=10.0)
         # 10-second gap between first and last event
         _make_iteration_jsonl(run_dir, 1, [
             {"type": "text", "text": "start", "timestamp": "2026-02-24T10:00:00+00:00"},
@@ -675,7 +671,7 @@ class TestShowRunDetailIterationsTable:
     def test_single_event_shows_dash_for_duration(self, tmp_path: Path) -> None:
         run_id = "2026-02-24T10-00-00"
         run_dir = _make_meta(tmp_path, run_id, status="complete", iterations_completed=1,
-                             total_cost_usd=0.0, total_duration_s=0.0)
+                             total_duration_s=0.0)
         _make_iteration_jsonl(run_dir, 1, [
             {"type": "text", "text": "only one event", "timestamp": "2026-02-24T10:00:00+00:00"},
         ])
@@ -706,7 +702,7 @@ class TestCmdRunsWithRunId:
         """_cmd_runs(['<id>', '--cwd', ...]) dispatches to _show_run_detail."""
         run_id = "2026-02-24T10-00-00"
         _make_meta(tmp_path, run_id, status="complete", iterations_completed=1,
-                   total_cost_usd=0.01, total_duration_s=5.0)
+                   total_duration_s=5.0)
         result = _cmd_runs([run_id, "--cwd", str(tmp_path)])
         assert result == 0
 
@@ -720,7 +716,7 @@ class TestCmdRunsWithRunId:
         """main(['runs', '<id>', '--cwd', ...]) works end-to-end."""
         run_id = "2026-02-24T10-00-00"
         _make_meta(tmp_path, run_id, status="complete", iterations_completed=1,
-                   total_cost_usd=0.01, total_duration_s=5.0)
+                   total_duration_s=5.0)
         result = main(["runs", run_id, "--cwd", str(tmp_path)])
         assert result == 0
 
@@ -734,7 +730,7 @@ class TestIterationTextOutput:
     def test_returns_zero_for_existing_iteration(self, tmp_path: Path) -> None:
         run_id = "2026-02-24T10-00-00"
         run_dir = _make_meta(tmp_path, run_id, status="complete", iterations_completed=1,
-                             total_cost_usd=0.0, total_duration_s=1.0)
+                             total_duration_s=1.0)
         _make_iteration_jsonl(run_dir, 1, [
             {"type": "text", "text": "hello world", "timestamp": "2026-02-24T10:00:00+00:00"},
         ])
@@ -745,7 +741,7 @@ class TestIterationTextOutput:
     def test_returns_one_for_missing_iteration(self, tmp_path: Path) -> None:
         run_id = "2026-02-24T10-00-00"
         _make_meta(tmp_path, run_id, status="complete", iterations_completed=1,
-                   total_cost_usd=0.0, total_duration_s=1.0)
+                   total_duration_s=1.0)
         # No iteration JSONL created
         result = _cmd_runs([run_id, "--cwd", str(tmp_path), "--iteration", "99"])
         assert result == 1
@@ -753,7 +749,7 @@ class TestIterationTextOutput:
     def test_prints_text_content_from_iteration(self, tmp_path: Path) -> None:
         run_id = "2026-02-24T10-00-00"
         run_dir = _make_meta(tmp_path, run_id, status="complete", iterations_completed=1,
-                             total_cost_usd=0.0, total_duration_s=1.0)
+                             total_duration_s=1.0)
         _make_iteration_jsonl(run_dir, 3, [
             {"type": "text", "text": "first chunk ", "timestamp": "2026-02-24T10:00:00+00:00"},
             {"type": "text", "text": "second chunk", "timestamp": "2026-02-24T10:00:01+00:00"},
@@ -782,7 +778,7 @@ class TestIterationTextOutput:
     def test_prints_message_when_no_text_events(self, tmp_path: Path) -> None:
         run_id = "2026-02-24T10-00-00"
         run_dir = _make_meta(tmp_path, run_id, status="complete", iterations_completed=1,
-                             total_cost_usd=0.0, total_duration_s=1.0)
+                             total_duration_s=1.0)
         # Only tool_use events, no text
         _make_iteration_jsonl(run_dir, 1, [
             {"type": "tool_use", "name": "Bash", "input": "ls", "timestamp": "2026-02-24T10:00:00+00:00"},
