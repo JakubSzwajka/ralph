@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from ralph.config import load_config
 from ralph.core import IterationResult, RalphConfig, run_ralph
 from ralph.notifier import DiscordNotifier
 
@@ -130,10 +131,29 @@ def parse_args(argv: list[str] | None = None) -> RalphConfig:
 
     args = parser.parse_args(argv)
 
-    # Resolve webhook URL: CLI flag takes priority over env var
+    # Load config file values (lowest precedence after defaults)
+    file_config = load_config()
+
+    # Resolve webhook URL: CLI flag > env var > config file
     discord_webhook_url = (
-        args.discord_webhook or os.environ.get("RALPH_DISCORD_WEBHOOK") or None
+        args.discord_webhook
+        or os.environ.get("RALPH_DISCORD_WEBHOOK")
+        or file_config.get("discord_webhook_url")
+        or None
     )
+
+    # Resolve discord interval: CLI flag > config file > default (5.0)
+    # args.discord_interval always has a value (default=5.0), so we check whether the
+    # user explicitly provided it by comparing against the sentinel default.
+    _interval_default = 5.0
+    if args.discord_interval != _interval_default:
+        # User explicitly set --discord-interval on the CLI; it wins.
+        discord_min_interval: float = args.discord_interval
+    else:
+        # Fall back to config file, then default.
+        discord_min_interval = float(
+            file_config.get("discord_min_interval", _interval_default)
+        )
 
     return RalphConfig(
         prd=args.prd,
@@ -144,7 +164,7 @@ def parse_args(argv: list[str] | None = None) -> RalphConfig:
         model=args.model,
         max_turns=args.max_turns,
         discord_webhook_url=discord_webhook_url,
-        discord_min_interval=args.discord_interval,
+        discord_min_interval=discord_min_interval,
     )
 
 

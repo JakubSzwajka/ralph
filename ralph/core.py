@@ -11,6 +11,7 @@ from claude_agent_sdk import (
     ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
     query,
 )
 
@@ -108,14 +109,17 @@ async def run_iteration(
                         full_text.append(block.text)
                         yield block.text
                     elif isinstance(block, ThinkingBlock):
-                        full_text.append(str(block))
-                        yield str(block)
+                        full_text.append(block.thinking)
+                        yield block.thinking
                     elif isinstance(block, ToolUseBlock):
-                        full_text.append(str(block))
-                        yield str(block)
+                        full_text.append(block.name)
+                        yield block.name
                     elif isinstance(block, ToolResultBlock):
-                        full_text.append(str(block))
-                        yield str(block)
+                        full_text.append(str(block.content))
+                        yield str(block.content)
+                    elif isinstance(block, UserMessage):
+                        full_text.append(str(block.content))
+                        yield str(block.content)
                     else:
                         print(f"Unknown block type: {block}")
             case _:
