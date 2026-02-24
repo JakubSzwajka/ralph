@@ -11,7 +11,7 @@ import pytest
 from ralph.browser import PrdInfo
 from ralph.core import IterationResult, RalphConfig
 from ralph.tasks import TaskItem
-from ralph.tui import BrowserScreen, HistoryScreen, IterationList, OutputPane, PrdTree, RalphApp, RunScreen, SummaryScreen, TaskPanel, _prd_status_style
+from ralph.tui import BrowserScreen, DeleteConfirmScreen, GhIssueSelectionScreen, HistoryScreen, IterationList, OutputPane, PrdPreviewScreen, PrdTree, RalphApp, RunScreen, SummaryScreen, TaskPanel, _prd_status_style
 
 
 # ---------------------------------------------------------------------------
@@ -806,6 +806,190 @@ async def test_ralph_app_prd_dir_forwarded_to_browser_screen(tmp_path: Path):
         assert isinstance(app.screen, BrowserScreen)
         assert app.screen._prd_dir == tmp_path
         await pilot.press("q")
+
+
+# ---------------------------------------------------------------------------
+# PrdPreviewScreen — unit and async tests (Story 01-preview-prd)
+# ---------------------------------------------------------------------------
+
+
+class TestPrdPreviewScreenUnit:
+    """Unit tests for PrdPreviewScreen helpers (no running Textual app)."""
+
+    def test_importable(self):
+        """PrdPreviewScreen can be imported from ralph.tui."""
+        assert PrdPreviewScreen is not None
+
+    def test_build_header_with_full_frontmatter(self, tmp_path: Path):
+        """_build_header returns status, date and author joined by bullets."""
+        readme = tmp_path / "README.md"
+        readme.write_text(
+            '---\nstatus: accepted\ndate: 2026-01-15\nauthor: "alice"\n---\n\n# My PRD\n',
+            encoding="utf-8",
+        )
+        prd = PrdInfo(slug="my-prd", title="My PRD", status="accepted", path=readme)
+        screen = PrdPreviewScreen(prd)
+        header = screen._build_header()
+        assert "accepted" in header
+        assert "2026-01-15" in header
+        assert "alice" in header
+
+    def test_build_header_empty_when_file_missing(self, tmp_path: Path):
+        """_build_header returns empty string when README.md cannot be read."""
+        readme = tmp_path / "MISSING.md"
+        prd = PrdInfo(slug="my-prd", title="My PRD", status="draft", path=readme)
+        screen = PrdPreviewScreen(prd)
+        assert screen._build_header() == ""
+
+    def test_build_header_omits_absent_fields(self, tmp_path: Path):
+        """_build_header omits missing frontmatter fields gracefully."""
+        readme = tmp_path / "README.md"
+        readme.write_text("---\nstatus: draft\n---\n\n# PRD\n", encoding="utf-8")
+        prd = PrdInfo(slug="my-prd", title="PRD", status="draft", path=readme)
+        screen = PrdPreviewScreen(prd)
+        header = screen._build_header()
+        assert "draft" in header
+        # date and author absent — no crash
+        assert "·" not in header  # only one field, no separator
+
+    def test_read_body_strips_frontmatter(self, tmp_path: Path):
+        """_read_body returns content with frontmatter stripped."""
+        readme = tmp_path / "README.md"
+        readme.write_text(
+            "---\nstatus: accepted\n---\n\n# My PRD\n\nSome body text.\n",
+            encoding="utf-8",
+        )
+        prd = PrdInfo(slug="my-prd", title="My PRD", status="accepted", path=readme)
+        screen = PrdPreviewScreen(prd)
+        body = screen._read_body()
+        assert "# My PRD" in body
+        assert "Some body text." in body
+        assert "status: accepted" not in body
+
+    def test_read_body_placeholder_when_file_missing(self, tmp_path: Path):
+        """_read_body returns a placeholder when the file cannot be read."""
+        readme = tmp_path / "MISSING.md"
+        prd = PrdInfo(slug="my-prd", title="My PRD", status="draft", path=readme)
+        screen = PrdPreviewScreen(prd)
+        body = screen._read_body()
+        assert "Could not read" in body
+
+    def test_read_body_no_frontmatter(self, tmp_path: Path):
+        """_read_body returns full content when there is no frontmatter."""
+        readme = tmp_path / "README.md"
+        readme.write_text("# My PRD\n\nNo frontmatter here.\n", encoding="utf-8")
+        prd = PrdInfo(slug="my-prd", title="My PRD", status="unknown", path=readme)
+        screen = PrdPreviewScreen(prd)
+        body = screen._read_body()
+        assert "# My PRD" in body
+        assert "No frontmatter here." in body
+
+
+@pytest.mark.asyncio
+async def test_preview_prd_keybinding_opens_modal(tmp_path: Path):
+    """Pressing 'p' after selecting a PRD pushes PrdPreviewScreen."""
+    _make_prd_dir(tmp_path, "my-feature")
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+
+        # Select the first PRD so _selected_prd is set.
+        tree = app.screen.query_one(PrdTree)
+        first_leaf = list(tree.root.children)[0]
+        tree.move_cursor(first_leaf)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Press 'p' — PrdPreviewScreen should be pushed on top.
+        await pilot.press("p")
+        await pilot.pause()
+
+        assert isinstance(app.screen, PrdPreviewScreen)
+
+        # Dismiss with Escape — should return to BrowserScreen.
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert isinstance(app.screen, BrowserScreen)
+
+
+@pytest.mark.asyncio
+async def test_preview_prd_dismiss_with_q(tmp_path: Path):
+    """Pressing 'q' inside PrdPreviewScreen dismisses the modal."""
+    _make_prd_dir(tmp_path, "cool-thing")
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+
+        tree = app.screen.query_one(PrdTree)
+        first_leaf = list(tree.root.children)[0]
+        tree.move_cursor(first_leaf)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        await pilot.press("p")
+        await pilot.pause()
+
+        assert isinstance(app.screen, PrdPreviewScreen)
+
+        await pilot.press("q")
+        await pilot.pause()
+
+        assert isinstance(app.screen, BrowserScreen)
+
+
+@pytest.mark.asyncio
+async def test_preview_prd_noop_when_no_selection(tmp_path: Path):
+    """Pressing 'p' without selecting a PRD first does nothing."""
+    _make_prd_dir(tmp_path, "some-prd")
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+
+        # Do NOT select a PRD — press 'p' anyway.
+        await pilot.press("p")
+        await pilot.pause()
+
+        # Should still be on BrowserScreen (no modal pushed).
+        assert isinstance(app.screen, BrowserScreen)
+        await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_preview_prd_renders_markdown_content(tmp_path: Path):
+    """PrdPreviewScreen mounts with a Markdown widget containing the PRD body."""
+    prd_dir = _make_prd_dir(tmp_path, "render-test")
+    readme = prd_dir / "README.md"
+    readme.write_text(
+        "---\nstatus: draft\ndate: 2026-02-01\nauthor: \"bob\"\n---\n\n# Render Test\n\nBody content here.\n",
+        encoding="utf-8",
+    )
+
+    prd = PrdInfo(
+        slug="render-test",
+        title="Render Test",
+        status="draft",
+        path=readme,
+    )
+
+    from textual.app import App, ComposeResult
+    from textual.widgets import Markdown
+
+    class _TestApp(App[None]):
+        def compose(self) -> ComposeResult:
+            yield PrdPreviewScreen(prd)
+
+        def on_mount(self) -> None:
+            self.push_screen(PrdPreviewScreen(prd))
+
+    app = _TestApp()
+    async with app.run_test(headless=True) as pilot:
+        md = app.screen.query_one("#prd-preview-content", Markdown)
+        assert md is not None
+        await pilot.press("escape")
 
 
 # ---------------------------------------------------------------------------
@@ -2526,5 +2710,561 @@ async def test_history_screen_no_runs_shows_placeholder_row(tmp_path: Path):
         table: DataTable = app.screen.query_one(DataTable)
         # Placeholder "No run history found" row is added.
         assert table.row_count == 1
+
+        await pilot.press("q")
+
+
+# ---------------------------------------------------------------------------
+# DeleteConfirmScreen — unit and async tests (Story 02-delete-prd)
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteConfirmScreenUnit:
+    """Unit tests for DeleteConfirmScreen helpers (no running Textual app)."""
+
+    def test_importable(self):
+        """DeleteConfirmScreen can be imported from ralph.tui."""
+        assert DeleteConfirmScreen is not None
+
+    def test_build_body_shows_title_and_status(self, tmp_path: Path):
+        """_build_body includes PRD title and status."""
+        prd = PrdInfo(slug="my-prd", title="My PRD", status="accepted", path=tmp_path / "README.md")
+        screen = DeleteConfirmScreen(prd)
+        body = screen._build_body()
+        assert "My PRD" in body
+        assert "accepted" in body
+
+    def test_build_body_warns_when_in_progress(self, tmp_path: Path):
+        """_build_body includes a warning when status is in-progress."""
+        prd = PrdInfo(slug="my-prd", title="My PRD", status="in-progress", path=tmp_path / "README.md")
+        screen = DeleteConfirmScreen(prd)
+        body = screen._build_body()
+        assert "in-progress" in body
+        assert "Work may be lost" in body
+
+    def test_build_body_no_warning_for_done(self, tmp_path: Path):
+        """_build_body does not include an in-progress warning for done PRDs."""
+        prd = PrdInfo(slug="my-prd", title="My PRD", status="done", path=tmp_path / "README.md")
+        screen = DeleteConfirmScreen(prd)
+        body = screen._build_body()
+        assert "done" in body
+        assert "Work may be lost" not in body
+
+    def test_build_body_no_warning_for_draft(self, tmp_path: Path):
+        """_build_body does not warn for draft status."""
+        prd = PrdInfo(slug="my-prd", title="My PRD", status="draft", path=tmp_path / "README.md")
+        screen = DeleteConfirmScreen(prd)
+        body = screen._build_body()
+        assert "draft" in body
+        assert "Work may be lost" not in body
+
+    def test_build_body_includes_key_hints(self, tmp_path: Path):
+        """_build_body includes key hint for y/Enter/n/Escape."""
+        prd = PrdInfo(slug="my-prd", title="My PRD", status="accepted", path=tmp_path / "README.md")
+        screen = DeleteConfirmScreen(prd)
+        body = screen._build_body()
+        assert "Escape" in body
+
+
+# ---------------------------------------------------------------------------
+# DeleteConfirmScreen — async integration tests (Story 02-delete-prd)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_prd_keybinding_opens_modal(tmp_path: Path):
+    """Pressing 'd' after selecting a PRD pushes DeleteConfirmScreen."""
+    _make_prd_dir(tmp_path, "my-feature")
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+
+        # Select the first PRD so _selected_prd is set.
+        tree = app.screen.query_one(PrdTree)
+        first_leaf = list(tree.root.children)[0]
+        tree.move_cursor(first_leaf)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Press 'd' — DeleteConfirmScreen should be pushed on top.
+        await pilot.press("d")
+        await pilot.pause()
+
+        assert isinstance(app.screen, DeleteConfirmScreen)
+
+        # Cancel with Escape — should return to BrowserScreen.
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert isinstance(app.screen, BrowserScreen)
+        await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_delete_prd_cancel_with_n(tmp_path: Path):
+    """Pressing 'n' inside DeleteConfirmScreen dismisses without deleting."""
+    _make_prd_dir(tmp_path, "cool-thing")
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+
+        tree = app.screen.query_one(PrdTree)
+        first_leaf = list(tree.root.children)[0]
+        tree.move_cursor(first_leaf)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        await pilot.press("d")
+        await pilot.pause()
+
+        assert isinstance(app.screen, DeleteConfirmScreen)
+
+        await pilot.press("n")
+        await pilot.pause()
+
+        # Should return to BrowserScreen without deleting.
+        assert isinstance(app.screen, BrowserScreen)
+        assert (tmp_path / "cool-thing").exists()
+        await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_delete_prd_noop_when_no_selection(tmp_path: Path):
+    """Pressing 'd' without selecting a PRD first does nothing."""
+    _make_prd_dir(tmp_path, "some-prd")
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+
+        # Do NOT select a PRD — press 'd' anyway.
+        await pilot.press("d")
+        await pilot.pause()
+
+        # Should still be on BrowserScreen (no modal pushed).
+        assert isinstance(app.screen, BrowserScreen)
+        await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_delete_prd_confirm_removes_directory(tmp_path: Path):
+    """Confirming deletion removes the PRD directory from disk."""
+    _make_prd_dir(tmp_path, "delete-me")
+    assert (tmp_path / "delete-me").exists()
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+
+        tree = app.screen.query_one(PrdTree)
+        first_leaf = list(tree.root.children)[0]
+        tree.move_cursor(first_leaf)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        await pilot.press("d")
+        await pilot.pause()
+
+        assert isinstance(app.screen, DeleteConfirmScreen)
+
+        # Confirm with 'y'.
+        await pilot.press("y")
+        await pilot.pause()
+
+        # Should be back on BrowserScreen.
+        assert isinstance(app.screen, BrowserScreen)
+
+        # PRD directory should be gone.
+        assert not (tmp_path / "delete-me").exists()
+        await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_delete_prd_refreshes_tree(tmp_path: Path):
+    """After deletion the PrdTree no longer shows the deleted PRD."""
+    _make_prd_dir(tmp_path, "alpha")
+    _make_prd_dir(tmp_path, "beta")
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+
+        # Select "alpha" (first alphabetically).
+        tree = app.screen.query_one(PrdTree)
+        first_leaf = list(tree.root.children)[0]
+        tree.move_cursor(first_leaf)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Delete it.
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("y")
+        await pilot.pause()
+
+        # Tree should now show only "beta".
+        tree = app.screen.query_one(PrdTree)
+        remaining_slugs = [node.data.slug for node in tree.root.children if node.data]
+        assert "alpha" not in remaining_slugs
+        assert "beta" in remaining_slugs
+        await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_delete_prd_with_gh_issue_calls_gh_close(tmp_path: Path, monkeypatch):
+    """Confirming deletion of a PRD with gh-issue calls gh issue close."""
+    prd_dir = _make_prd_dir(tmp_path, "linked-prd")
+    # Overwrite README to include gh-issue frontmatter.
+    readme = prd_dir / "README.md"
+    readme.write_text(
+        "---\nstatus: done\ngh-issue: https://github.com/owner/repo/issues/42\n---\n\n# Linked PRD\n",
+        encoding="utf-8",
+    )
+
+    popen_calls: list[list[str]] = []
+
+    class _FakePopen:
+        def __init__(self, args, **kwargs):
+            popen_calls.append(args)
+
+    monkeypatch.setattr("ralph.tui.subprocess.Popen", _FakePopen)
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+
+        tree = app.screen.query_one(PrdTree)
+        first_leaf = list(tree.root.children)[0]
+        tree.move_cursor(first_leaf)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("y")
+        await pilot.pause()
+
+        assert isinstance(app.screen, BrowserScreen)
+
+        # gh issue close should have been called with the issue URL.
+        assert any(
+            "https://github.com/owner/repo/issues/42" in " ".join(call)
+            for call in popen_calls
+        )
+        await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_delete_prd_no_gh_issue_no_popen(tmp_path: Path, monkeypatch):
+    """Deleting a PRD without gh-issue does not call gh issue close."""
+    _make_prd_dir(tmp_path, "no-issue-prd")
+
+    popen_calls: list = []
+
+    class _FakePopen:
+        def __init__(self, args, **kwargs):
+            popen_calls.append(args)
+
+    monkeypatch.setattr("ralph.tui.subprocess.Popen", _FakePopen)
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        tree = app.screen.query_one(PrdTree)
+        first_leaf = list(tree.root.children)[0]
+        tree.move_cursor(first_leaf)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("y")
+        await pilot.pause()
+
+        # No Popen calls when gh-issue is absent.
+        assert popen_calls == []
+        await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_delete_prd_gh_cli_unavailable_shows_warning(tmp_path: Path, monkeypatch):
+    """When gh is not installed, deletion still proceeds with a warning toast."""
+    prd_dir = _make_prd_dir(tmp_path, "gh-missing-prd")
+    readme = prd_dir / "README.md"
+    readme.write_text(
+        "---\nstatus: done\ngh-issue: https://github.com/owner/repo/issues/99\n---\n\n# GH Missing PRD\n",
+        encoding="utf-8",
+    )
+
+    def _raise_fnf(*args, **kwargs):
+        raise FileNotFoundError("gh not found")
+
+    monkeypatch.setattr("ralph.tui.subprocess.Popen", _raise_fnf)
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        tree = app.screen.query_one(PrdTree)
+        first_leaf = list(tree.root.children)[0]
+        tree.move_cursor(first_leaf)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("y")
+        await pilot.pause()
+
+        # Deletion still proceeds despite gh being unavailable.
+        assert not (tmp_path / "gh-missing-prd").exists()
+        assert isinstance(app.screen, BrowserScreen)
+        await pilot.press("q")
+
+
+# ---------------------------------------------------------------------------
+# GhIssueSelectionScreen — unit tests (tui-pull-gh-issues)
+# ---------------------------------------------------------------------------
+
+
+class TestGhIssueSelectionScreen:
+    """Unit tests for GhIssueSelectionScreen initialisation."""
+
+    def _make_issues(self):
+        return [
+            {"number": 1, "title": "First issue", "body": "", "url": "https://gh/1"},
+            {"number": 2, "title": "Second issue", "body": "", "url": "https://gh/2"},
+            {"number": 3, "title": "Third issue", "body": "", "url": "https://gh/3"},
+        ]
+
+    def test_init_stores_issues(self):
+        issues = self._make_issues()
+        screen = GhIssueSelectionScreen(issues)
+        assert screen._issues is issues
+
+    def test_init_selected_is_empty(self):
+        screen = GhIssueSelectionScreen(self._make_issues())
+        assert screen._selected == set()
+
+    def test_format_item_unchecked(self):
+        screen = GhIssueSelectionScreen(self._make_issues())
+        label = screen._format_item(0)
+        assert label.startswith("[ ]")
+        assert "#1" in label
+        assert "First issue" in label
+
+    def test_format_item_checked(self):
+        screen = GhIssueSelectionScreen(self._make_issues())
+        screen._selected.add(0)
+        label = screen._format_item(0)
+        assert label.startswith("[x]")
+
+    def test_bindings_include_expected_keys(self):
+        # BINDINGS entries are either Binding objects (with .key) or plain tuples
+        # (key, action, description).  Support both formats.
+        keys = set()
+        for b in GhIssueSelectionScreen.BINDINGS:
+            if hasattr(b, "key"):
+                keys.add(b.key)
+            else:
+                keys.add(b[0])
+        assert "space" in keys
+        assert "escape" in keys
+        assert "i" in keys
+
+
+@pytest.mark.asyncio
+async def test_gh_issue_selection_screen_cancel_dismisses_empty(tmp_path: Path):
+    """Pressing Escape dismisses GhIssueSelectionScreen with an empty list."""
+    issues = [
+        {"number": 1, "title": "Feature A", "body": "", "url": "https://gh/1"},
+    ]
+
+    results: list[list[dict]] = []
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.pause()
+
+        def _capture(selected: list[dict]) -> None:
+            results.append(selected)
+
+        app.push_screen(GhIssueSelectionScreen(issues), _capture)
+        await pilot.pause()
+
+        assert isinstance(app.screen, GhIssueSelectionScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert results == [[]]
+
+
+@pytest.mark.asyncio
+async def test_gh_issue_selection_screen_toggle_and_import(tmp_path: Path):
+    """Space toggles an issue; pressing i confirms the selection."""
+    issues = [
+        {"number": 1, "title": "Feature A", "body": "", "url": "https://gh/1"},
+        {"number": 2, "title": "Feature B", "body": "", "url": "https://gh/2"},
+    ]
+
+    results: list[list[dict]] = []
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.pause()
+
+        def _capture(selected: list[dict]) -> None:
+            results.append(selected)
+
+        app.push_screen(GhIssueSelectionScreen(issues), _capture)
+        await pilot.pause()
+
+        assert isinstance(app.screen, GhIssueSelectionScreen)
+        # Toggle the first item with Space.
+        await pilot.press("space")
+        await pilot.pause()
+
+        # Confirm import.
+        await pilot.press("i")
+        await pilot.pause()
+
+        assert len(results) == 1
+        assert len(results[0]) == 1
+        assert results[0][0]["number"] == 1
+
+
+# ---------------------------------------------------------------------------
+# BrowserScreen — pull gh issues integration tests (tui-pull-gh-issues)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pull_gh_issues_gh_cli_unavailable_shows_warning(
+    tmp_path: Path, monkeypatch
+):
+    """Pressing g when gh is not installed shows a warning notification."""
+    # Create a PRD so we get the two-pane view (PrdTree, not manual Input).
+    _make_prd_dir(tmp_path, "existing-prd")
+
+    def _raise_fnf(*args, **kwargs):
+        raise FileNotFoundError("gh not found")
+
+    monkeypatch.setattr("ralph.gh_issues.subprocess.run", _raise_fnf)
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+        await pilot.press("g")
+        await pilot.pause()
+
+        # Should still be on BrowserScreen — modal not pushed.
+        assert isinstance(app.screen, BrowserScreen)
+        await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_pull_gh_issues_no_pullable_issues_shows_notification(
+    tmp_path: Path, monkeypatch
+):
+    """Pressing g when all issues are already linked shows an info notification."""
+    import json as _json
+
+    linked_url = "https://github.com/org/repo/issues/1"
+    prd_dir = _make_prd_dir(tmp_path, "linked-prd")
+    readme = prd_dir / "README.md"
+    readme.write_text(
+        f"---\nstatus: draft\ngh-issue: {linked_url}\n---\n\n# Linked PRD\n",
+        encoding="utf-8",
+    )
+
+    issues = [{"number": 1, "title": "Already linked", "body": "", "url": linked_url}]
+
+    class FakeResult:
+        stdout = _json.dumps(issues)
+        returncode = 0
+
+    monkeypatch.setattr("ralph.gh_issues.subprocess.run", lambda *a, **kw: FakeResult())
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+        await pilot.press("g")
+        await pilot.pause()
+
+        # Modal should NOT have been pushed — still on BrowserScreen.
+        assert isinstance(app.screen, BrowserScreen)
+        await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_pull_gh_issues_shows_selection_modal(tmp_path: Path, monkeypatch):
+    """Pressing g with pullable issues pushes GhIssueSelectionScreen."""
+    import json as _json
+
+    # Create an existing PRD so we get the two-pane view (PrdTree, no manual Input).
+    _make_prd_dir(tmp_path, "existing-prd")
+
+    issues = [
+        {"number": 42, "title": "New Feature", "body": "desc", "url": "https://gh/42"},
+    ]
+
+    class FakeResult:
+        stdout = _json.dumps(issues)
+        returncode = 0
+
+    monkeypatch.setattr("ralph.gh_issues.subprocess.run", lambda *a, **kw: FakeResult())
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+        await pilot.press("g")
+        await pilot.pause()
+
+        assert isinstance(app.screen, GhIssueSelectionScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+        await pilot.press("q")
+
+
+@pytest.mark.asyncio
+async def test_pull_gh_issues_creates_prd_on_import(tmp_path: Path, monkeypatch):
+    """Selecting issues and pressing i creates PRD directories."""
+    import json as _json
+
+    # Create an existing PRD so we get the two-pane view (PrdTree, no manual Input).
+    _make_prd_dir(tmp_path, "existing-prd")
+
+    issues = [
+        {"number": 10, "title": "Cool New Feature", "body": "A " * 30, "url": "https://gh/10"},
+    ]
+
+    class FakeResult:
+        stdout = _json.dumps(issues)
+        returncode = 0
+
+    monkeypatch.setattr("ralph.gh_issues.subprocess.run", lambda *a, **kw: FakeResult())
+
+    app = RalphApp(prd_dir=tmp_path)
+    async with app.run_test(headless=True) as pilot:
+        assert isinstance(app.screen, BrowserScreen)
+        await pilot.press("g")
+        await pilot.pause()
+
+        assert isinstance(app.screen, GhIssueSelectionScreen)
+
+        # Toggle the first (only) issue and confirm import.
+        await pilot.press("space")
+        await pilot.pause()
+        await pilot.press("i")
+        await pilot.pause()
+
+        assert isinstance(app.screen, BrowserScreen)
+
+        # PRD directory should have been created.
+        prd_readme = tmp_path / "cool-new-feature" / "README.md"
+        assert prd_readme.exists()
+
+        content = prd_readme.read_text(encoding="utf-8")
+        assert "status: draft" in content
+        assert "gh-issue: https://gh/10" in content
 
         await pilot.press("q")

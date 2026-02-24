@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +27,8 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label, ListItem, ListView, RichLog, Static, Tree
+from textual.screen import ModalScreen, Screen
+from textual.widgets import Button, DataTable, Footer, Header, Input, Label, ListItem, ListView, Markdown, RichLog, Static, Tree
 
 from ralph.browser import PrdInfo, _parse_frontmatter, scan_prds
 from ralph.core import IterationResult, RalphConfig, run_ralph
@@ -55,6 +57,30 @@ def _prd_status_style(status: str) -> str:
         "draft": "yellow",
         "done": "dim",
     }.get(status, "")
+
+
+def _strip_frontmatter(text: str) -> str:
+    """Strip YAML frontmatter from *text*, returning the body content.
+
+    Removes the opening ``---``, all frontmatter key/value lines, and the
+    closing ``---`` delimiter.  The returned string starts with the first
+    non-blank line after the closing delimiter.  If the text does not start
+    with ``---`` or the closing delimiter is missing, the original text is
+    returned unchanged.
+
+    Args:
+        text: Raw file content that may start with YAML frontmatter.
+
+    Returns:
+        File content with the frontmatter block removed.
+    """
+    if not text.startswith("---"):
+        return text
+    lines = text.split("\n")
+    for i, line in enumerate(lines[1:], 1):
+        if line.strip() == "---":
+            return "\n".join(lines[i + 1 :]).lstrip("\n")
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +159,30 @@ class PrdTree(Tree[PrdInfo]):
         prd = event.node.data
         if prd is not None:
             self.post_message(self.PrdSelected(path=prd.path, slug=prd.slug))
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def refresh_prds(self, prds: list[PrdInfo]) -> None:
+        """Replace the displayed PRD list and redraw the tree.
+
+        Called after a PRD is added or deleted to keep the tree in sync
+        with the disk state.
+
+        Args:
+            prds: Updated list of :class:`~ralph.browser.PrdInfo` objects.
+        """
+        self._prds = prds
+        self.clear()
+        self.root.expand()
+        for prd in prds:
+            style = _prd_status_style(prd.status)
+            display_status = prd.status if prd.status != "unknown" else "?"
+            label = Text()
+            label.append(f"{prd.slug}  ")
+            label.append(f"[{display_status}]", style=style)
+            self.root.add_leaf(label, data=prd)
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +316,7 @@ class OutputPane(RichLog):
             text: Raw text (may contain Rich markup if the widget was created
                   with ``markup=True``).
         """
-        self.write(text)
+        self.write(escape(text))
 
     def show_iteration(self, chunks: list[str]) -> None:
         """Replace the current content with a *historical* iteration's output.
@@ -281,7 +331,7 @@ class OutputPane(RichLog):
         self.auto_scroll = False
         self.clear()
         for chunk in chunks:
-            self.write(chunk)
+            self.write(escape(chunk))
         if self.is_mounted:
             self.scroll_home(animate=False)
 
@@ -420,6 +470,305 @@ class IterationList(ListView):
 # ---------------------------------------------------------------------------
 
 
+class PrdPreviewScreen(ModalScreen[None]):
+    """Modal overlay showing the full PRD README content.
+
+    Opens from :class:`BrowserScreen` when the user presses ``p`` on a
+    selected PRD.  Renders the ``README.md`` body as markdown in a scrollable
+    panel.  A summary line at the top shows frontmatter fields (status, date,
+    author) colour-coded per the standard status palette.
+
+    Dismissible with ``Escape`` or ``q``.
+
+    Args:
+        prd: The :class:`~ralph.browser.PrdInfo` whose README.md to preview.
+    """
+
+    BINDINGS = [
+        ("escape", "dismiss_modal", "Close"),
+        ("q", "dismiss_modal", "Close"),
+    ]
+
+    def __init__(self, prd: PrdInfo, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._prd = prd
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _build_header(self) -> str:
+        """Return a Rich markup summary line from the PRD frontmatter.
+
+        Combines status (colour-coded), date, and author fields separated by
+        ``·`` bullets.  Returns an empty string when the file cannot be read
+        or all three fields are absent.
+        """
+        try:
+            text = self._prd.path.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+
+        fm = _parse_frontmatter(text)
+        parts: list[str] = []
+
+        status = fm.get("status", "")
+        if status:
+            style = _prd_status_style(status)
+            if style:
+                parts.append(f"[{style}]{escape(status)}[/{style}]")
+            else:
+                parts.append(escape(status))
+
+        date = fm.get("date", "")
+        if date:
+            parts.append(f"[dim]{escape(date)}[/dim]")
+
+        author = fm.get("author", "")
+        if author:
+            parts.append(f"[dim]by {escape(author)}[/dim]")
+
+        return "  ·  ".join(parts)
+
+    def _read_body(self) -> str:
+        """Return the README.md content with frontmatter stripped.
+
+        Returns a placeholder italic string when the file cannot be read.
+        """
+        try:
+            text = self._prd.path.read_text(encoding="utf-8")
+        except OSError:
+            return "_Could not read PRD content._"
+        return _strip_frontmatter(text)
+
+    # ------------------------------------------------------------------
+    # Composition
+    # ------------------------------------------------------------------
+
+    def compose(self) -> ComposeResult:
+        """Render the preview modal with a header summary and markdown body."""
+        header_text = self._build_header()
+        body = self._read_body()
+        with Vertical(id="prd-preview-modal"):
+            if header_text:
+                yield Static(header_text, id="prd-preview-header")
+            yield Markdown(body, id="prd-preview-content")
+        yield Footer()
+
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
+
+    def action_dismiss_modal(self) -> None:
+        """Dismiss the preview modal and return to the PRD browser."""
+        self.dismiss(None)
+
+
+# ---------------------------------------------------------------------------
+# DeleteConfirmScreen (Story 02-delete-prd)
+# ---------------------------------------------------------------------------
+
+
+class DeleteConfirmScreen(ModalScreen[bool]):
+    """Modal overlay for confirming PRD deletion.
+
+    Shows the PRD title and current status.  When the status is
+    ``in-progress``, an extra warning is shown to indicate that work may
+    be lost.  The user confirms with ``y`` or Enter, or cancels with
+    ``n`` or Escape.
+
+    Dismisses with ``True`` on confirm, ``False`` on cancel.
+
+    Args:
+        prd: The :class:`~ralph.browser.PrdInfo` to delete.
+    """
+
+    BINDINGS = [
+        ("y", "confirm", "Yes, delete"),
+        ("enter", "confirm", "Yes, delete"),
+        ("n", "cancel", "Cancel"),
+        ("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, prd: PrdInfo, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._prd = prd
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _build_body(self) -> str:
+        """Return Rich markup for the confirmation message body.
+
+        Includes PRD title, colour-coded status, an optional in-progress
+        warning, and a key-hint line.
+        """
+        status = self._prd.status
+        style = _prd_status_style(status)
+        status_markup = (
+            f"[{style}]{escape(status)}[/{style}]" if style else escape(status)
+        )
+
+        lines = [
+            f"Delete PRD: [bold]{escape(self._prd.title)}[/bold]",
+            f"Status: {status_markup}",
+            "",
+        ]
+
+        if status == "in-progress":
+            lines.append(
+                "[bold yellow]⚠  This PRD is in-progress. Work may be lost.[/bold yellow]"
+            )
+            lines.append("")
+
+        lines.append(
+            "Press [bold green]y[/bold green] / [bold green]Enter[/bold green] to confirm, "
+            "[bold yellow]n[/bold yellow] / [bold yellow]Escape[/bold yellow] to cancel."
+        )
+
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Composition
+    # ------------------------------------------------------------------
+
+    def compose(self) -> ComposeResult:
+        """Render the delete confirmation modal."""
+        with Vertical(id="delete-confirm-modal"):
+            yield Static(self._build_body(), id="delete-confirm-body")
+        yield Footer()
+
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
+
+    def action_confirm(self) -> None:
+        """Confirm deletion — dismiss with ``True``."""
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        """Cancel deletion — dismiss with ``False``."""
+        self.dismiss(False)
+
+
+# ---------------------------------------------------------------------------
+# GhIssueSelectionScreen (tui-pull-gh-issues)
+# ---------------------------------------------------------------------------
+
+
+class GhIssueSelectionScreen(ModalScreen[list[dict]]):
+    """Modal overlay for selecting GitHub issues to import as PRDs.
+
+    Presents a list of pullable GitHub issues (already filtered to exclude
+    issues linked to existing PRDs).  The user navigates with arrow keys or
+    vim ``j``/``k`` bindings, toggles individual selections with Space, and
+    confirms the import with Enter or ``i``.  Pressing Escape dismisses
+    without importing anything.
+
+    Dismisses with the list of selected issue dicts (possibly empty).
+
+    Args:
+        issues: List of GitHub issue dicts to display.  Each dict must have
+                ``number``, ``title``, ``body``, and ``url`` keys.
+    """
+
+    BINDINGS = [
+        ("j", "cursor_down", "Next"),
+        ("k", "cursor_up", "Previous"),
+        ("space", "toggle_selection", "Toggle"),
+        ("i", "confirm_import", "Import"),
+        ("enter", "confirm_import", "Import"),
+        ("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, issues: list[dict], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._issues = issues
+        self._selected: set[int] = set()
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _format_item(self, index: int) -> str:
+        """Return the display label for the issue at *index*.
+
+        Includes a ``[x]`` / ``[ ]`` checkbox, the issue number, and the
+        issue title.
+        """
+        issue = self._issues[index]
+        checked = "x" if index in self._selected else " "
+        number = issue.get("number", "?")
+        title = issue.get("title", "(untitled)")
+        return f"[{checked}] #{number}  {title}"
+
+    def _refresh_item(self, index: int) -> None:
+        """Redraw a single list item after its selection state changes."""
+        try:
+            item = self.query_one(f"#gh-issue-item-{index}", ListItem)
+            item.query_one(Label).update(self._format_item(index))
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Composition
+    # ------------------------------------------------------------------
+
+    def compose(self) -> ComposeResult:
+        """Render the issue selection modal."""
+        with Vertical(id="gh-issue-modal"):
+            yield Static(
+                f"Select GitHub issues to import ({len(self._issues)} available):",
+                id="gh-issue-title",
+            )
+            yield ListView(
+                *[
+                    ListItem(Label(self._format_item(i)), id=f"gh-issue-item-{i}")
+                    for i in range(len(self._issues))
+                ],
+                id="gh-issue-list",
+            )
+            yield Static(
+                "Space: toggle  ·  Enter/i: import  ·  Esc: cancel",
+                id="gh-issue-hint",
+            )
+        yield Footer()
+
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
+
+    def action_cursor_down(self) -> None:
+        """Move the list cursor down (vim ``j`` binding)."""
+        self.query_one("#gh-issue-list", ListView).action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        """Move the list cursor up (vim ``k`` binding)."""
+        self.query_one("#gh-issue-list", ListView).action_cursor_up()
+
+    def action_toggle_selection(self) -> None:
+        """Toggle the selection state of the currently highlighted issue."""
+        lv = self.query_one("#gh-issue-list", ListView)
+        idx = lv.index
+        if idx is None:
+            return
+        if idx in self._selected:
+            self._selected.discard(idx)
+        else:
+            self._selected.add(idx)
+        self._refresh_item(idx)
+
+    def action_confirm_import(self) -> None:
+        """Dismiss with the list of selected issues (preserving order)."""
+        selected = [self._issues[i] for i in sorted(self._selected)]
+        self.dismiss(selected)
+
+    def action_cancel(self) -> None:
+        """Dismiss without importing — returns an empty list."""
+        self.dismiss([])
+
+
 class BrowserScreen(Screen[None]):
     """PRD browser — entry point when no PRD is pre-configured.
 
@@ -442,6 +791,9 @@ class BrowserScreen(Screen[None]):
 
     BINDINGS = [
         ("q", "app.quit", "Quit"),
+        ("p", "preview_prd", "Preview"),
+        ("d", "delete_prd", "Delete"),
+        ("g", "pull_gh_issues", "Pull GH Issues"),
     ]
 
     def __init__(self, prd_dir: Path | None = None, **kwargs: Any) -> None:
@@ -519,6 +871,121 @@ class BrowserScreen(Screen[None]):
         yield Footer()
 
     # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
+
+    def action_preview_prd(self) -> None:
+        """Open :class:`PrdPreviewScreen` for the currently selected PRD.
+
+        No-ops when no PRD is selected so the binding is harmless before the
+        user has made a selection.
+        """
+        if self._selected_prd is None:
+            return
+        self.app.push_screen(PrdPreviewScreen(self._selected_prd))
+
+    def action_delete_prd(self) -> None:
+        """Open :class:`DeleteConfirmScreen` for the currently selected PRD.
+
+        No-ops when no PRD is selected so the binding is harmless before the
+        user has made a selection.
+        """
+        if self._selected_prd is None:
+            return
+        self.app.push_screen(
+            DeleteConfirmScreen(self._selected_prd),
+            self._on_delete_confirmed,
+        )
+
+    def action_pull_gh_issues(self) -> None:
+        """Fetch open GitHub issues and start the interactive import flow.
+
+        Pressing ``g`` triggers this action, which:
+
+        1. Runs ``gh issue list …`` via the CLI (blocking subprocess).
+        2. Filters out issues already linked to local PRDs.
+        3. Shows :class:`GhIssueSelectionScreen` for the user to pick issues.
+        4. Creates PRD directories for the selected issues.
+        5. Refreshes the :class:`PrdTree` to show newly created PRDs.
+
+        Gracefully handles the ``gh`` CLI being unavailable (shows a warning
+        toast) and the case where no new issues are available (shows an info
+        toast).
+        """
+        from ralph.gh_issues import fetch_gh_issues, filter_unlinked_issues
+
+        # ── Fetch issues from GitHub ──────────────────────────────────
+        try:
+            issues = fetch_gh_issues()
+        except FileNotFoundError:
+            self.notify(
+                "gh CLI not found — install it from https://cli.github.com/",
+                severity="warning",
+                title="GitHub CLI not found",
+            )
+            return
+        except Exception as exc:
+            self.notify(str(exc), severity="error", title="Failed to fetch issues")
+            return
+
+        # ── Filter out already-linked issues ──────────────────────────
+        existing_urls: set[str] = {p.gh_issue for p in self._prds if p.gh_issue}
+        pullable = filter_unlinked_issues(issues, existing_urls)
+
+        if not pullable:
+            self.notify("No new issues to pull.", title="GitHub Issues")
+            return
+
+        # ── Show selection modal ──────────────────────────────────────
+        self.app.push_screen(
+            GhIssueSelectionScreen(pullable),
+            self._on_issues_selected,
+        )
+
+    def _on_issues_selected(self, selected: list[dict]) -> None:
+        """Callback from :class:`GhIssueSelectionScreen`.
+
+        When *selected* is non-empty:
+
+        1. Creates a PRD directory for each selected issue using
+           :func:`~ralph.gh_issues.create_prd_from_issue`.
+        2. Shows a success notification with the import count.
+        3. Rescans PRDs and refreshes :class:`PrdTree`.
+
+        When *selected* is empty (user cancelled or chose nothing), this
+        method returns immediately without making any changes.
+        """
+        if not selected:
+            return
+
+        from ralph.gh_issues import create_prd_from_issue
+
+        prds_dir = self._prd_dir or Path.cwd() / "docs" / "prds"
+        existing_slugs: set[str] = {p.slug for p in self._prds}
+
+        created: list[Path] = []
+        for issue in selected:
+            try:
+                readme = create_prd_from_issue(issue, prds_dir, existing_slugs)
+                created.append(readme)
+            except OSError as exc:
+                self.notify(str(exc), severity="error", title="Failed to create PRD")
+
+        if created:
+            count = len(created)
+            self.notify(
+                f"Imported {count} issue{'s' if count != 1 else ''} as PRDs.",
+                title="GitHub Issues",
+            )
+
+        # ── Refresh the PRD tree ──────────────────────────────────────
+        self._prds = scan_prds(Path.cwd(), self._prd_dir)
+        try:
+            self.query_one("#prd-tree", PrdTree).refresh_prds(self._prds)
+        except Exception:
+            pass  # No tree in the no-PRDs fallback view.
+
+    # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
 
@@ -543,6 +1010,75 @@ class BrowserScreen(Screen[None]):
 
         # Allow the user to kick off a run now that a PRD is chosen.
         self.query_one("#start-button", Button).disabled = False
+
+    def _on_delete_confirmed(self, confirmed: bool) -> None:
+        """Callback from :class:`DeleteConfirmScreen`.
+
+        When *confirmed* is ``True``:
+
+        1. If the PRD has a ``gh-issue`` URL, attempt to close the linked
+           GitHub issue via ``gh issue close <url>`` (fire-and-forget via
+           :class:`subprocess.Popen`).  A warning toast is shown when the
+           ``gh`` CLI is unavailable; other errors are silently ignored.
+        2. Remove the entire PRD directory from disk via
+           :func:`shutil.rmtree`.  An error toast is shown and the
+           operation is aborted on failure.
+        3. Clear :attr:`_selected_prd`, rescan for PRDs, refresh the
+           :class:`PrdTree`, reset the task preview, and disable the
+           Start button.
+        """
+        if not confirmed or self._selected_prd is None:
+            return
+
+        prd = self._selected_prd
+        prd_dir = prd.path.parent
+
+        # ── Close linked GitHub issue (fire-and-forget) ───────────────
+        if prd.gh_issue:
+            try:
+                subprocess.Popen(
+                    ["gh", "issue", "close", prd.gh_issue],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except FileNotFoundError:
+                self.notify(
+                    "gh CLI not found — GitHub issue not closed.",
+                    severity="warning",
+                    title="GitHub issue not closed",
+                )
+            except OSError:
+                self.notify(
+                    "Could not close GitHub issue.",
+                    severity="warning",
+                    title="GitHub issue not closed",
+                )
+
+        # ── Delete the PRD directory ──────────────────────────────────
+        try:
+            shutil.rmtree(prd_dir)
+        except OSError as exc:
+            self.notify(str(exc), severity="error", title="Delete failed")
+            return
+
+        # ── Refresh state ─────────────────────────────────────────────
+        self._selected_prd = None
+        self._prds = scan_prds(Path.cwd(), self._prd_dir)
+
+        # Refresh tree (only present in the two-pane layout).
+        try:
+            self.query_one("#prd-tree", PrdTree).refresh_prds(self._prds)
+        except Exception:
+            pass  # No tree in the no-PRDs fallback view.
+
+        # Reset task preview and disable Start button.
+        try:
+            preview = self.query_one("#task-preview", TaskPanel)
+            preview._tasks = []
+            preview.update(preview._render_tasks())
+            self.query_one("#start-button", Button).disabled = True
+        except Exception:
+            pass  # Widgets may not be present in the fallback view.
 
     @on(Button.Pressed, "#start-button")
     def _on_start_pressed(self) -> None:
@@ -1470,6 +2006,81 @@ class RalphApp(App[None]):
         height: 1fr;
         overflow-y: auto;
         padding: 0 1;
+    }
+
+    /* ── PrdPreviewScreen ────────────────────────── modal overlay ── */
+    PrdPreviewScreen {
+        align: center middle;
+    }
+
+    /* Centred, scrollable panel with a border */
+    PrdPreviewScreen #prd-preview-modal {
+        width: 80%;
+        height: 80%;
+        border: round $primary;
+        padding: 1 2;
+        overflow-y: auto;
+        background: $surface;
+    }
+
+    /* Frontmatter summary line at the top of the modal */
+    PrdPreviewScreen #prd-preview-header {
+        padding-bottom: 1;
+        border-bottom: solid $primary-darken-2;
+        margin-bottom: 1;
+    }
+
+    /* Scrollable markdown body */
+    PrdPreviewScreen #prd-preview-content {
+        overflow-y: auto;
+    }
+
+    /* ── DeleteConfirmScreen ──────────────────────── modal overlay ── */
+    DeleteConfirmScreen {
+        align: center middle;
+    }
+
+    /* Centred panel with error-coloured border */
+    DeleteConfirmScreen #delete-confirm-modal {
+        width: 60;
+        height: auto;
+        border: round $error;
+        padding: 1 2;
+        background: $surface;
+    }
+
+    /* ── GhIssueSelectionScreen ───────────────────── modal overlay ── */
+    GhIssueSelectionScreen {
+        align: center middle;
+    }
+
+    /* Centred, scrollable panel — tall enough to show a useful number of issues */
+    GhIssueSelectionScreen #gh-issue-modal {
+        width: 80%;
+        height: 80%;
+        border: round $primary;
+        padding: 1 2;
+        background: $surface;
+    }
+
+    /* Heading label */
+    GhIssueSelectionScreen #gh-issue-title {
+        padding-bottom: 1;
+        border-bottom: solid $primary-darken-2;
+        margin-bottom: 1;
+    }
+
+    /* Scrollable list of issues fills available space */
+    GhIssueSelectionScreen #gh-issue-list {
+        height: 1fr;
+    }
+
+    /* Hint bar at the bottom */
+    GhIssueSelectionScreen #gh-issue-hint {
+        padding-top: 1;
+        border-top: solid $primary-darken-2;
+        margin-top: 1;
+        color: $text-muted;
     }
     """
 

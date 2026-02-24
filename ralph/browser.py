@@ -28,6 +28,12 @@ class PrdInfo:
     """Absolute path to the PRD's README.md."""
     task_files: list[Path] = field(default_factory=list)
     """All ``.md`` files in the PRD directory that are *not* README.md."""
+    gh_issue: str | None = None
+    """URL of the linked GitHub issue from ``gh-issue`` frontmatter, or ``None``.
+
+    The YAML value ``~`` (null) is normalised to ``None``.  An empty or absent
+    ``gh-issue`` key also produces ``None``.
+    """
 
 
 def _parse_frontmatter(text: str) -> dict[str, str]:
@@ -107,6 +113,12 @@ def scan_prds(root: Path, prds_dir: Path | None = None) -> list[PrdInfo]:
         title = _extract_title(text) or slug
         status = frontmatter.get("status", "unknown")
 
+        # Normalise gh-issue: treat missing, empty, and YAML null ("~") as None.
+        gh_issue_raw = frontmatter.get("gh-issue", "")
+        gh_issue: str | None = (
+            None if not gh_issue_raw or gh_issue_raw in ("~", "null") else gh_issue_raw
+        )
+
         task_files: list[Path] = sorted(
             f for f in prd_dir.glob("*.md") if f.name.lower() != "readme.md"
         )
@@ -118,6 +130,7 @@ def scan_prds(root: Path, prds_dir: Path | None = None) -> list[PrdInfo]:
                 status=status,
                 path=readme,
                 task_files=task_files,
+                gh_issue=gh_issue,
             )
         )
 
