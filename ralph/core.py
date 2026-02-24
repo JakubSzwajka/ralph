@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import AsyncIterator
 
-from claude_agent_sdk import ClaudeAgentOptions, query
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    PermissionMode,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    query,
+)
 
 
 COMPLETION_SIGNAL = "<promise>COMPLETE</promise>"
@@ -40,9 +47,17 @@ class RalphConfig:
     tasks: Path | None = None
     iterations: int = 10
     cwd: Path = field(default_factory=Path.cwd)
-    permission_mode: str = "bypassPermissions"
+    permission_mode: PermissionMode = "bypassPermissions"
     model: str | None = None
     max_turns: int | None = None
+    discord_webhook_url: str | None = None
+    discord_notify: bool = False
+    discord_min_interval: float = 5.0
+
+    def __post_init__(self) -> None:
+        # Auto-enable notifications when a webhook URL is provided
+        if self.discord_webhook_url is not None and not self.discord_notify:
+            self.discord_notify = True
 
 
 def _build_prompt(config: RalphConfig) -> str:
@@ -78,24 +93,33 @@ async def run_iteration(
         max_turns=config.max_turns,
     )
 
-    full_text = []
+    full_text: list[str] = []
     cost = 0.0
 
     async for message in query(prompt=prompt, options=options):
         match message:
             case msg if hasattr(msg, "content") and hasattr(msg, "model"):
                 # AssistantMessage
-                for block in msg.content:
-                    if hasattr(block, "text"):
+                for block in msg.content:  # type: ignore
+                    if isinstance(block, str):
+                        full_text.append(block)
+                        yield block
+                    elif isinstance(block, TextBlock):
                         full_text.append(block.text)
                         yield block.text
-            case msg if hasattr(msg, "subtype") and msg.subtype == "result":
-                if hasattr(msg, "data"):
-                    cost = msg.data.get("cost_usd", 0.0)
-            case msg if hasattr(msg, "total_cost_usd"):
-                # ResultMessage
-                cost = msg.total_cost_usd if hasattr(msg, "total_cost_usd") else 0.0
-
+                    elif isinstance(block, ThinkingBlock):
+                        full_text.append(str(block))
+                        yield str(block)
+                    elif isinstance(block, ToolUseBlock):
+                        full_text.append(str(block))
+                        yield str(block)
+                    elif isinstance(block, ToolResultBlock):
+                        full_text.append(str(block))
+                        yield str(block)
+                    else:
+                        print(f"Unknown block type: {block}")
+            case _:
+                print(f"Unknown message type: {type(msg)}")
     combined = "\n".join(full_text)
     elapsed = time.monotonic() - start
 

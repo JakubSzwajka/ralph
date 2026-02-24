@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import sys
+import os
 from pathlib import Path
 
 from rich.console import Console
@@ -12,6 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ralph.core import IterationResult, RalphConfig, run_ralph
+from ralph.notifier import DiscordNotifier
 
 
 console = Console()
@@ -59,7 +60,9 @@ def _build_status_table(
 
         total_cost = 0.0
         for r in results:
-            status_str = "[green]COMPLETE[/green]" if r.is_complete else "[blue]done[/blue]"
+            status_str = (
+                "[green]COMPLETE[/green]" if r.is_complete else "[blue]done[/blue]"
+            )
             summary.add_row(
                 str(r.iteration),
                 f"{r.duration_s:.1f}s",
@@ -93,18 +96,45 @@ def parse_args(argv: list[str] | None = None) -> RalphConfig:
         description="Autonomous coding agent loop powered by Claude",
     )
     parser.add_argument("iterations", type=int, help="Number of iterations to run")
-    parser.add_argument("--prd", type=Path, default=Path("PRD.md"), help="Path to PRD file")
-    parser.add_argument("--tasks", type=Path, default=None, help="Path to tasks list or directory")
-    parser.add_argument("--cwd", type=Path, default=Path.cwd(), help="Working directory")
+    parser.add_argument(
+        "--prd", type=Path, default=Path("PRD.md"), help="Path to PRD file"
+    )
+    parser.add_argument(
+        "--tasks", type=Path, default=None, help="Path to tasks list or directory"
+    )
+    parser.add_argument(
+        "--cwd", type=Path, default=Path.cwd(), help="Working directory"
+    )
     parser.add_argument(
         "--permission-mode",
         default="bypassPermissions",
         choices=["default", "acceptEdits", "plan", "bypassPermissions"],
     )
     parser.add_argument("--model", default=None, help="Claude model to use")
-    parser.add_argument("--max-turns", type=int, default=None, help="Max turns per iteration")
+    parser.add_argument(
+        "--max-turns", type=int, default=None, help="Max turns per iteration"
+    )
+    parser.add_argument(
+        "--discord-webhook",
+        default=None,
+        metavar="URL",
+        help="Discord webhook URL for notifications (also reads RALPH_DISCORD_WEBHOOK env var)",
+    )
+    parser.add_argument(
+        "--discord-interval",
+        type=float,
+        default=5.0,
+        metavar="SECONDS",
+        help="Minimum interval between Discord notification messages (default: 5s)",
+    )
 
     args = parser.parse_args(argv)
+
+    # Resolve webhook URL: CLI flag takes priority over env var
+    discord_webhook_url = (
+        args.discord_webhook or os.environ.get("RALPH_DISCORD_WEBHOOK") or None
+    )
+
     return RalphConfig(
         prd=args.prd,
         tasks=args.tasks,
@@ -113,6 +143,8 @@ def parse_args(argv: list[str] | None = None) -> RalphConfig:
         permission_mode=args.permission_mode,
         model=args.model,
         max_turns=args.max_turns,
+        discord_webhook_url=discord_webhook_url,
+        discord_min_interval=args.discord_interval,
     )
 
 
@@ -131,6 +163,14 @@ async def _run(config: RalphConfig) -> int:
         )
     )
 
+    # Create Discord notifier if enabled
+    notifier: DiscordNotifier | None = None
+    if config.discord_notify and config.discord_webhook_url:
+        notifier = DiscordNotifier(
+            webhook_url=config.discord_webhook_url,
+            min_interval=config.discord_min_interval,
+        )
+
     with Live(
         _build_status_table(config, 0, results, True, tail_lines),
         console=console,
@@ -148,14 +188,27 @@ async def _run(config: RalphConfig) -> int:
                         if len(tail_lines) > 50:
                             tail_lines = tail_lines[-50:]
                 live.update(
-                    _build_status_table(config, current_iteration, results, True, tail_lines)
+                    _build_status_table(
+                        config, current_iteration, results, True, tail_lines
+                    )
                 )
-            elif isinstance(item, IterationResult):
+            else:
                 results.append(item)
                 tail_lines.clear()
                 live.update(
-                    _build_status_table(config, current_iteration, results, True, tail_lines)
+                    _build_status_table(
+                        config, current_iteration, results, True, tail_lines
+                    )
                 )
+
+                if notifier is not None:
+                    await notifier.send(
+                        iteration=item.iteration,
+                        summary=item.text,
+                        cost_usd=item.cost_usd,
+                        duration_s=item.duration_s,
+                        is_complete=item.is_complete,
+                    )
 
                 if item.is_complete:
                     break
