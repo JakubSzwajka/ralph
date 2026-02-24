@@ -19,7 +19,7 @@ from claude_agent_sdk import (
 
 from ralph.core.config import RalphConfig
 from ralph.core.prompts import SYSTEM_PROMPT, COMPLETION_SIGNAL, build_prompt
-from ralph.recorder import (
+from ralph.traces import (
     RunRecorder,
     TextEvent,
     ThinkingEvent,

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ralph.core import IterationResult, RalphConfig, run_iteration, run_ralph
-from ralph.recorder import RunRecorder
+from ralph.traces import RunRecorder
 
 
 # ---------------------------------------------------------------------------

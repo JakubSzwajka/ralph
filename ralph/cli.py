@@ -593,27 +593,10 @@ def main(argv: list[str] | None = None) -> int:
     no_tui: bool = no_tui_flag or not sys.stdout.isatty()
 
     if no_tui:
-        # ── Headless / legacy Rich mode ────────────────────────────────────
-        # Preserve the original one-shot Rich output for piped and CI usage.
+        # ── Headless mode ─────────────────────────────────────────────────
         if not prd_explicit:
-            # --prd was not provided: launch the legacy interactive file browser.
-            from ralph.browser import RalphBrowser
-
-            browser = RalphBrowser(
-                root=config.cwd,
-                iterations=config.iterations,
-                prd_dir=prd_dir,
-            )
-            result = browser.run()
-
-            if result is None:
-                # User quit the browser without making a selection.
-                return 0
-
-            # Map the browser selection back into the config.
-            config.prd = result.prd
-            if result.tasks is not None:
-                config.tasks = result.tasks
+            console.print("[red]Error:[/red] --prd is required in headless mode (--no-tui or piped output)")
+            return 1
 
         if not config.prd.exists():
             console.print(f"[red]Error:[/red] PRD file not found: {config.prd}")
