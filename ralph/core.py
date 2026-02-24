@@ -12,7 +12,17 @@ from claude_agent_sdk import (
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
+    SystemMessage,
     query,
+)
+
+from ralph.recorder import (
+    RunRecorder,
+    TextEvent,
+    ThinkingEvent,
+    ToolUseEvent,
+    ToolResultEvent,
+    UserMessageEvent,
 )
 
 
@@ -79,6 +89,7 @@ If the PRD is complete, output {COMPLETION_SIGNAL}."""
 async def run_iteration(
     config: RalphConfig,
     iteration: int,
+    recorder: RunRecorder | None = None,
 ) -> AsyncIterator[str | IterationResult]:
     """Run a single Ralph iteration. Yields text chunks, then a final IterationResult."""
     import time
@@ -97,33 +108,78 @@ async def run_iteration(
     full_text: list[str] = []
     cost = 0.0
 
-    async for message in query(prompt=prompt, options=options):
-        match message:
-            case msg if hasattr(msg, "content") and hasattr(msg, "model"):
-                # AssistantMessage
-                for block in msg.content:  # type: ignore
-                    if isinstance(block, str):
-                        full_text.append(block)
-                        yield block
-                    elif isinstance(block, TextBlock):
-                        full_text.append(block.text)
-                        yield block.text
-                    elif isinstance(block, ThinkingBlock):
-                        full_text.append(block.thinking)
-                        yield block.thinking
-                    elif isinstance(block, ToolUseBlock):
-                        full_text.append(block.name)
-                        yield block.name
-                    elif isinstance(block, ToolResultBlock):
-                        full_text.append(str(block.content))
-                        yield str(block.content)
-                    elif isinstance(block, UserMessage):
-                        full_text.append(str(block.content))
-                        yield str(block.content)
-                    else:
-                        print(f"Unknown block type: {block}")
-            case _:
-                print(f"Unknown message type: {type(msg)}")
+    # Open the iteration writer if a recorder was provided.  We enter the
+    # context manager manually so we can wrap the entire async loop.
+    _iter_ctx = recorder.open_iteration(iteration) if recorder is not None else None
+    writer = _iter_ctx.__enter__() if _iter_ctx is not None else None
+
+    try:
+        async for message in query(prompt=prompt, options=options):
+            match message:
+                case msg if hasattr(msg, "content") and hasattr(msg, "model"):
+                    # AssistantMessage
+                    for block in msg.content:  # type: ignore
+                        if isinstance(block, str):
+                            full_text.append(block)
+                            yield block
+                            if writer is not None:
+                                writer.write_event(TextEvent(text=block))
+                        elif isinstance(block, SystemMessage):
+                            pass
+                        elif isinstance(block, TextBlock):
+                            full_text.append(block.text)
+                            yield block.text
+                            if writer is not None:
+                                writer.write_event(TextEvent(text=block.text))
+                        elif isinstance(block, ThinkingBlock):
+                            slug = f"{block.signature}::{block.thinking}"
+                            full_text.append(slug)
+                            yield slug
+                            if writer is not None:
+                                writer.write_event(
+                                    ThinkingEvent(
+                                        thinking=block.thinking,
+                                        signature=block.signature,
+                                    )
+                                )
+                        elif isinstance(block, ToolUseBlock):
+                            slug = f"{block.name}::{str(block.input)}"
+                            full_text.append(slug)
+                            yield slug
+                            if writer is not None:
+                                writer.write_event(
+                                    ToolUseEvent(
+                                        name=block.name,
+                                        input=str(block.input),
+                                    )
+                                )
+                        elif isinstance(block, ToolResultBlock):
+                            slug = f"{block.tool_use_id}::{str(block.content)}"
+                            full_text.append(slug)
+                            yield slug
+                            if writer is not None:
+                                writer.write_event(
+                                    ToolResultEvent(
+                                        tool_use_id=block.tool_use_id,
+                                        content=str(block.content),
+                                    )
+                                )
+                        elif isinstance(block, UserMessage):
+                            slug = block.content
+                            if isinstance(slug, list):
+                                slug = "\n".join(str(item) for item in slug)
+                            full_text.append(slug)
+                            yield slug
+                            if writer is not None:
+                                writer.write_event(UserMessageEvent(content=slug))
+                        else:
+                            print(f"Unknown block type: {block}")
+                case _:
+                    print(f"Unknown message type: {type(msg)}")
+    finally:
+        if _iter_ctx is not None:
+            _iter_ctx.__exit__(None, None, None)
+
     combined = "\n".join(full_text)
     elapsed = time.monotonic() - start
 
@@ -138,8 +194,16 @@ async def run_iteration(
 
 async def run_ralph(config: RalphConfig):
     """Run the full Ralph loop. Yields (iteration, text_chunk | IterationResult)."""
-    for i in range(1, config.iterations + 1):
-        async for item in run_iteration(config, i):
-            yield (i, item)
-            if isinstance(item, IterationResult) and item.is_complete:
-                return
+    recorder = RunRecorder(config.cwd)
+    recorder.write_meta_start(config)
+    results: list[IterationResult] = []
+    try:
+        for i in range(1, config.iterations + 1):
+            async for item in run_iteration(config, i, recorder):
+                yield (i, item)
+                if isinstance(item, IterationResult):
+                    results.append(item)
+                    if item.is_complete:
+                        return
+    finally:
+        recorder.write_meta_end(results)

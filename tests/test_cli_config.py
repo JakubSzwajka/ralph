@@ -23,6 +23,15 @@ def _parse_with_config(config_file: Path, extra_argv: list[str] | None = None) -
     with patch("ralph.cli.load_config") as mock_load:
         # Read from the real file so we test integration
         mock_load.return_value = json.loads(config_file.read_text())
+        config, _prd_explicit, _prd_dir, _no_tui = parse_args(argv)
+        return config
+
+
+def _parse_full(config_file: Path, extra_argv: list[str] | None = None) -> tuple:
+    """Run parse_args with a patched CONFIG_PATH and return the full 4-tuple."""
+    argv = ["1", "--prd", "/dev/null"] + (extra_argv or [])
+    with patch("ralph.cli.load_config") as mock_load:
+        mock_load.return_value = json.loads(config_file.read_text())
         return parse_args(argv)
 
 
@@ -84,3 +93,36 @@ class TestDiscordIntervalPrecedence:
         config_file = _make_config_file(tmp_path, {})
         config = _parse_with_config(config_file)
         assert config.discord_min_interval == 5.0
+
+
+class TestPrdDirectoryPrecedence:
+    """Tests for prd_directory precedence: --prd-dir CLI flag > config file > None."""
+
+    def test_no_config_returns_none(self, tmp_path: Path) -> None:
+        """When neither --prd-dir nor config file key is set, prd_dir is None."""
+        config_file = _make_config_file(tmp_path, {})
+        _, _, prd_dir, _ = _parse_full(config_file)
+        assert prd_dir is None
+
+    def test_config_file_prd_directory_is_resolved(self, tmp_path: Path) -> None:
+        """prd_directory from config file is resolved relative to --cwd."""
+        config_file = _make_config_file(tmp_path, {"prd_directory": "custom/prds"})
+        _, _, prd_dir, _ = _parse_full(config_file)
+        # prd_dir should be cwd / custom/prds (cwd defaults to Path.cwd())
+        assert prd_dir is not None
+        assert prd_dir.parts[-2:] == ("custom", "prds")
+
+    def test_cli_prd_dir_overrides_config_file(self, tmp_path: Path) -> None:
+        """--prd-dir CLI flag overrides prd_directory from config file."""
+        config_file = _make_config_file(tmp_path, {"prd_directory": "custom/prds"})
+        _, _, prd_dir, _ = _parse_full(
+            config_file, ["--prd-dir", str(tmp_path / "cli/prds")]
+        )
+        assert prd_dir == tmp_path / "cli" / "prds"
+
+    def test_cli_prd_dir_absolute_path(self, tmp_path: Path) -> None:
+        """--prd-dir with an absolute path is used as-is."""
+        abs_path = tmp_path / "absolute" / "prds"
+        config_file = _make_config_file(tmp_path, {})
+        _, _, prd_dir, _ = _parse_full(config_file, ["--prd-dir", str(abs_path)])
+        assert prd_dir == abs_path
