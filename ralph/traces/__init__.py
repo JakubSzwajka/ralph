@@ -11,6 +11,7 @@ from ralph.traces.events import (
     ToolUseEvent,
     UserMessageEvent,
 )
+from ralph.traces.reader import RunSummary, list_runs
 from ralph.traces.writer import IterationWriter, RunRecorder
 
 __all__ = [
@@ -22,4 +23,6 @@ __all__ = [
     "UserMessageEvent",
     "IterationWriter",
     "RunRecorder",
+    "RunSummary",
+    "list_runs",
 ]

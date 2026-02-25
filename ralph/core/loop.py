@@ -150,6 +150,7 @@ async def run_ralph(config: RalphConfig):
                 yield (i, item)
                 if isinstance(item, IterationResult):
                     results.append(item)
+                    recorder.write_meta_progress(i)
                     if item.is_complete:
                         return
     finally:

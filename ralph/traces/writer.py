@@ -64,8 +64,20 @@ class RunRecorder:
             "iterations_requested": config.iterations,
             "model": config.model,
             "permission_mode": config.permission_mode,
+            "context_files": [str(p) for p in config.context_files],
         }
         meta_path = self.run_dir / "meta.json"
+        with meta_path.open("w", encoding="utf-8") as fh:
+            json.dump(meta, fh, indent=2)
+
+    def write_meta_progress(self, iteration: int) -> None:
+        meta_path = self.run_dir / "meta.json"
+        if meta_path.exists():
+            with meta_path.open("r", encoding="utf-8") as fh:
+                meta: dict = json.load(fh)
+        else:
+            meta = {}
+        meta.update({"iterations_completed": iteration, "status": "running"})
         with meta_path.open("w", encoding="utf-8") as fh:
             json.dump(meta, fh, indent=2)
 

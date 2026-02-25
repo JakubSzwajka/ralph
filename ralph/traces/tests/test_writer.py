@@ -62,10 +62,17 @@ class TestRunRecorder:
 class TestRunRecorderMeta:
     def test_write_meta_start_creates_meta_json(self, tmp_path: Path) -> None:
         from ralph.core import RalphConfig
-        config = RalphConfig(prd=Path("PRD.md"), cwd=tmp_path)
+        config = RalphConfig(
+            prd=Path("PRD.md"),
+            cwd=tmp_path,
+            context_files=[Path("src/main.py"), Path("docs/README.md")],
+        )
         recorder = RunRecorder(tmp_path)
         recorder.write_meta_start(config)
-        assert (recorder.run_dir / "meta.json").exists()
+        meta_path = recorder.run_dir / "meta.json"
+        assert meta_path.exists()
+        meta = json.loads(meta_path.read_text())
+        assert meta["context_files"] == ["src/main.py", "docs/README.md"]
 
     def test_write_meta_end_status_complete(self, tmp_path: Path) -> None:
         from ralph.core import IterationResult, RalphConfig
@@ -94,6 +101,39 @@ class TestRunRecorderMeta:
         recorder.write_meta_start(config)
         recorder.write_meta_end([])
         assert json.loads((recorder.run_dir / "meta.json").read_text())["status"] == "error"
+
+
+class TestRunRecorderMetaProgress:
+    def test_write_meta_progress_sets_running_status(self, tmp_path: Path) -> None:
+        from ralph.core import RalphConfig
+        config = RalphConfig(prd=Path("PRD.md"), cwd=tmp_path)
+        recorder = RunRecorder(tmp_path)
+        recorder.write_meta_start(config)
+        recorder.write_meta_progress(1)
+        meta = json.loads((recorder.run_dir / "meta.json").read_text())
+        assert meta["status"] == "running"
+        assert meta["iterations_completed"] == 1
+
+    def test_write_meta_progress_increments(self, tmp_path: Path) -> None:
+        from ralph.core import RalphConfig
+        config = RalphConfig(prd=Path("PRD.md"), iterations=3, cwd=tmp_path)
+        recorder = RunRecorder(tmp_path)
+        recorder.write_meta_start(config)
+        for i in range(1, 4):
+            recorder.write_meta_progress(i)
+            meta = json.loads((recorder.run_dir / "meta.json").read_text())
+            assert meta["iterations_completed"] == i
+            assert meta["status"] == "running"
+
+    def test_write_meta_progress_preserves_start_fields(self, tmp_path: Path) -> None:
+        from ralph.core import RalphConfig
+        config = RalphConfig(prd=Path("PRD.md"), cwd=tmp_path)
+        recorder = RunRecorder(tmp_path)
+        recorder.write_meta_start(config)
+        recorder.write_meta_progress(1)
+        meta = json.loads((recorder.run_dir / "meta.json").read_text())
+        assert meta["run_id"] == recorder.run_id
+        assert meta["prd"] == "PRD.md"
 
 
 class TestRunRecorderGitignore:

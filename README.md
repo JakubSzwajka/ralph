@@ -61,3 +61,5 @@ Or set `RALPH_DISCORD_WEBHOOK` env var.
 ## Stack
 
 Python · claude-agent-sdk · Textual · Rich · httpx
+
+Hello, World!
