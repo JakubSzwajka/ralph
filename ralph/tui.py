@@ -9,7 +9,17 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import Footer, Header, Input, Markdown, RichLog, Static, Tree
+from textual.screen import ModalScreen
+from textual.widgets import (
+    Button,
+    Footer,
+    Header,
+    Input,
+    Markdown,
+    RichLog,
+    Static,
+    Tree,
+)
 
 from ralph.browser import DocDir, DocFile, scan_docs
 from ralph.browser.scanner import parse_frontmatter
@@ -77,6 +87,80 @@ class DocTree(Tree[Path]):
             self.post_message(SelectionChanged(set(self.selected)))
 
 
+class ConfirmRunScreen(ModalScreen[bool]):
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "confirm", "Confirm"),
+    ]
+
+    DEFAULT_CSS = """
+    ConfirmRunScreen {
+        align: center middle;
+    }
+
+    #confirm-dialog {
+        width: 60;
+        height: auto;
+        max-height: 20;
+        border: round $primary-background-lighten-2;
+        border-title-color: $text-muted;
+        border-title-align: center;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #confirm-body {
+        width: 1fr;
+        height: auto;
+        padding: 1 0;
+    }
+
+    #confirm-buttons {
+        height: 3;
+        align: right middle;
+    }
+
+    #confirm-buttons Button {
+        margin-left: 1;
+    }
+    """
+
+    def __init__(self, config: "RalphConfig") -> None:
+        super().__init__()
+        self._config = config
+
+    def compose(self) -> ComposeResult:
+        c = self._config
+        files_list = "\n".join(f"  • {f.name}" for f in c.context_files)
+        body = (
+            f"[bold]Files:[/bold]\n{files_list}\n\n"
+            f"[bold]Iterations:[/bold] {c.iterations}\n"
+            f"[bold]Working dir:[/bold] {c.cwd}"
+        )
+        with Vertical(id="confirm-dialog"):
+            yield Static(body, id="confirm-body")
+            with Horizontal(id="confirm-buttons"):
+                yield Button("Cancel", id="cancel-btn", variant="default")
+                yield Button("Run", id="run-btn", variant="success")
+
+    def on_mount(self) -> None:
+        self.query_one("#confirm-dialog").border_title = "Confirm Run"
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#cancel-btn")
+    def _cancel(self) -> None:
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#run-btn")
+    def _confirm(self) -> None:
+        self.dismiss(True)
+
+
 TCSS = """
 #main {
     width: 1fr;
@@ -127,9 +211,11 @@ TCSS = """
 }
 
 #run-bar {
-    dock: bottom;
-    height: 3;
-    background: $primary-background-lighten-1;
+    height: 5;
+    border: round $primary-background-lighten-2;
+    border-title-color: $text-muted;
+    border-title-align: center;
+    margin: 0 1;
     padding: 0 2;
 }
 
@@ -183,7 +269,7 @@ class RalphApp(App[None]):
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        self._config = config
+        self._config = config or RalphConfig()
         self._prd_dir = prd_dir
         self._root = Path.cwd()
         self._running = False
@@ -202,14 +288,16 @@ class RalphApp(App[None]):
         with Horizontal(id="run-bar"):
             with Horizontal(id="run-bar-inner"):
                 yield Static("0 files selected", id="selection-count")
-                yield Static("Iterations:", id="iterations-label")
-                yield Input(value="10", id="iterations-input", type="integer")
+                yield Static(
+                    f"Iterations: {self._config.iterations}", id="iterations-label"
+                )
                 yield Static("[bold]r[/bold] to run", id="run-hint")
         yield Footer()
 
     def on_mount(self) -> None:
         self.query_one("#collection-card").border_title = "Files"
         self.query_one("#detail-card").border_title = "Details"
+        self.query_one("#run-bar").border_title = "Run"
         self.query_one("#meta-header").display = False
         self.query_one("#md-content").display = False
         self.query_one("#run-log").display = False
@@ -288,6 +376,13 @@ class RalphApp(App[None]):
             cwd=self._root,
         )
 
+        self.push_screen(ConfirmRunScreen(config), callback=self._on_confirm_run)
+        self._pending_config = config
+
+    def _on_confirm_run(self, confirmed: bool) -> None:
+        if not confirmed:
+            return
+        config = self._pending_config
         self._running = True
         self._switch_to_run_log()
         self.query_one("#detail-card").border_title = "Run Output"
