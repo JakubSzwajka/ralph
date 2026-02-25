@@ -11,6 +11,7 @@ from textual.message import Message
 from textual.widgets import Footer, Header, Markdown, Static, Tree
 
 from ralph.browser import DocDir, DocFile, scan_docs
+from ralph.browser.scanner import parse_frontmatter
 from ralph.core import RalphConfig
 
 
@@ -83,6 +84,15 @@ TCSS = """
     color: $text;
 }
 
+#meta-header {
+    width: 1fr;
+    padding: 1 2;
+    background: $primary-background-lighten-1;
+    color: $text-muted;
+    height: auto;
+    max-height: 5;
+}
+
 #md-content {
     width: 1fr;
     padding: 1 2;
@@ -116,6 +126,7 @@ class RalphApp(App[None]):
             with Vertical(id="collection-card"):
                 yield DocTree(doc_root, id="doc-tree")
             with Vertical(id="detail-card"):
+                yield Static("", id="meta-header")
                 yield Static("Select a file to view its contents", id="content")
                 yield Markdown("", id="md-content")
         yield Footer()
@@ -123,12 +134,23 @@ class RalphApp(App[None]):
     def on_mount(self) -> None:
         self.query_one("#collection-card").border_title = "Files"
         self.query_one("#detail-card").border_title = "Details"
+        self.query_one("#meta-header").display = False
         self.query_one("#md-content").display = False
+
+    def _format_meta_header(self, meta: dict[str, str]) -> str:
+        if not meta:
+            return ""
+        lines = []
+        for key, value in meta.items():
+            label = key.replace("-", " ").replace("_", " ").title()
+            lines.append(f"[bold]{label}:[/bold] {value or '[dim]—[/dim]'}")
+        return "  ".join(lines)
 
     @on(DocTree.FileHighlighted)
     def _on_file_highlighted(self, event: DocTree.FileHighlighted) -> None:
         content_widget = self.query_one("#content", Static)
         md_widget = self.query_one("#md-content", Markdown)
+        meta_widget = self.query_one("#meta-header", Static)
 
         try:
             text = event.path.read_text(encoding="utf-8")
@@ -136,10 +158,15 @@ class RalphApp(App[None]):
             text = f"[dim]Cannot read {event.path}[/dim]"
 
         if event.path.suffix == ".md":
+            meta, body = parse_frontmatter(text)
+            header = self._format_meta_header(meta)
+            meta_widget.update(header)
+            meta_widget.display = bool(meta)
             content_widget.display = False
             md_widget.display = True
-            md_widget.update(text)
+            md_widget.update(body)
         else:
+            meta_widget.display = False
             md_widget.display = False
             content_widget.display = True
             content_widget.update(text)

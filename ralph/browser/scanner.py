@@ -22,6 +22,37 @@ class DocDir:
     children: list[DocDir | DocFile]
 
 
+def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Parse YAML frontmatter delimited by ``---`` lines.
+
+    Returns (metadata_dict, body_without_frontmatter).
+    """
+    if not text.startswith("---"):
+        return {}, text
+
+    lines = text.split("\n")
+    end_line: int | None = None
+    for i, line in enumerate(lines[1:], 1):
+        if line.strip() == "---":
+            end_line = i
+            break
+
+    if end_line is None:
+        return {}, text
+
+    meta: dict[str, str] = {}
+    for line in lines[1:end_line]:
+        line = line.strip()
+        if ": " in line:
+            key, _, value = line.partition(": ")
+            meta[key.strip()] = value.strip().strip("\"'")
+        elif line.endswith(":"):
+            meta[line[:-1].strip()] = ""
+
+    body = "\n".join(lines[end_line + 1:])
+    return meta, body
+
+
 def _is_text_file(p: Path) -> bool:
     return p.suffix in TEXT_EXTENSIONS or p.name == ".env.example"
 
