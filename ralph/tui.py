@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -364,15 +365,9 @@ class RalphApp(App[None]):
             )
             return
 
-        iterations_str = self.query_one("#iterations-input", Input).value
-        try:
-            iterations = int(iterations_str)
-        except ValueError:
-            iterations = 10
-
-        config = RalphConfig(
+        config = replace(
+            self._config,
             context_files=list(tree.selected),
-            iterations=iterations,
             cwd=self._root,
         )
 

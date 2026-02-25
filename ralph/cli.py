@@ -376,7 +376,7 @@ def parse_args(
         prog="ralph",
         description="Autonomous coding agent loop powered by Claude",
     )
-    parser.add_argument("iterations", type=int, help="Number of iterations to run")
+    parser.add_argument("iterations", type=int, nargs="?", default=10, help="Number of iterations to run (default: 10)")
     parser.add_argument(
         "--prd",
         type=Path,
