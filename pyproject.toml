@@ -9,6 +9,9 @@ dependencies = [
     "pytest>=9.0.2",
     "rich>=13.0",
     "textual>=0.89",
+    "langfuse",
+    "langsmith[claude-agent-sdk]",
+    "langsmith[otel]",
 ]
 
 [project.scripts]

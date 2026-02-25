@@ -13,6 +13,9 @@ _KNOWN_KEYS: frozenset[str] = frozenset(
         "discord_webhook_url",
         "discord_min_interval",
         "prd_directory",
+        "langfuse_public_key",
+        "langfuse_secret_key",
+        "langfuse_base_url",
     }
 )
 

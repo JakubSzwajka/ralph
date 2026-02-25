@@ -8,13 +8,13 @@ from typing import AsyncIterator
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
+    ClaudeSDKClient,
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
     SystemMessage,
-    query,
 )
 
 from ralph.core.config import RalphConfig
@@ -62,8 +62,11 @@ async def run_iteration(
     _iter_ctx = recorder.open_iteration(iteration) if recorder is not None else None
     writer = _iter_ctx.__enter__() if _iter_ctx is not None else None
 
+    client = ClaudeSDKClient(options=options)
     try:
-        async for message in query(prompt=prompt, options=options):
+        await client.connect()
+        await client.query(prompt)
+        async for message in client.receive_messages():
             match message:
                 case msg if hasattr(msg, "content") and hasattr(msg, "model"):
                     for block in msg.content:  # type: ignore
@@ -125,6 +128,7 @@ async def run_iteration(
                 case _:
                     print(f"Unknown message type: {type(msg)}")
     finally:
+        await client.disconnect()
         if _iter_ctx is not None:
             _iter_ctx.__exit__(None, None, None)
 
@@ -141,6 +145,27 @@ async def run_iteration(
 
 async def run_ralph(config: RalphConfig):
     """Run the full Ralph loop. Yields (iteration, text_chunk | IterationResult)."""
+    # Optionally initialise Langfuse tracing via OpenTelemetry.
+    # Set langfuse_public_key, langfuse_secret_key (and optionally langfuse_host)
+    # in ~/.ralph/config.json to enable.
+    langfuse_client = None
+    if config.langfuse_enabled:
+        import os
+
+        os.environ.setdefault("LANGFUSE_PUBLIC_KEY", config.langfuse_public_key or "")
+        os.environ.setdefault("LANGFUSE_SECRET_KEY", config.langfuse_secret_key or "")
+        if config.langfuse_base_url:
+            os.environ.setdefault("LANGFUSE_BASE_URL", config.langfuse_base_url)
+        os.environ.setdefault("LANGSMITH_OTEL_ENABLED", "true")
+        os.environ.setdefault("LANGSMITH_OTEL_ONLY", "true")
+        os.environ.setdefault("LANGSMITH_TRACING", "true")
+
+        from langfuse import get_client
+        from langsmith.integrations.claude_agent_sdk import configure_claude_agent_sdk
+
+        langfuse_client = get_client()
+        configure_claude_agent_sdk()
+
     recorder = RunRecorder(config.cwd)
     recorder.write_meta_start(config)
     results: list[IterationResult] = []
@@ -155,3 +180,5 @@ async def run_ralph(config: RalphConfig):
                         return
     finally:
         recorder.write_meta_end(results)
+        if langfuse_client is not None:
+            langfuse_client.flush()

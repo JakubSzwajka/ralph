@@ -484,6 +484,9 @@ def parse_args(
             max_turns=args.max_turns,
             discord_webhook_url=discord_webhook_url,
             discord_min_interval=discord_min_interval,
+            langfuse_public_key=file_config.get("langfuse_public_key"),
+            langfuse_secret_key=file_config.get("langfuse_secret_key"),
+            langfuse_base_url=file_config.get("langfuse_base_url"),
         ),
         prd_explicit,
         prd_dir,
@@ -618,6 +621,6 @@ def main(argv: list[str] | None = None) -> int:
             console.print(f"[red]Error:[/red] PRD file not found: {config.prd}")
             return 1
 
-        tui_config = config if prd_explicit else None
+        tui_config = config if prd_explicit else config
         RalphApp(tui_config, prd_dir=prd_dir).run()
         return 0
