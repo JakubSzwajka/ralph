@@ -1,5 +1,3 @@
-"""Minimal Textual TUI for ralph — PRD browser with two-pane layout."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,7 +6,7 @@ from typing import Any
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import Footer, Header, Static, Tree
 
@@ -90,18 +88,35 @@ TCSS = """
 #main {
     width: 1fr;
     height: 1fr;
+    margin: 1 1;
+}
+
+#collection-card {
+    width: 40;
+    border: round $primary-background-lighten-2;
+    border-title-color: $text-muted;
+    border-title-align: center;
+    padding: 0 1;
 }
 
 #prd-tree {
-    width: 40;
-    border-right: solid $primary-background-lighten-2;
+    width: 1fr;
+}
+
+#detail-card {
+    width: 1fr;
+    border: round $primary-background-lighten-2;
+    border-title-color: $text-muted;
+    border-title-align: center;
+    margin-left: 1;
+    padding: 0;
 }
 
 #content {
     width: 1fr;
     height: 1fr;
     padding: 1 2;
-    color: $text-muted;
+    color: $text;
 }
 """
 
@@ -131,24 +146,35 @@ class RalphApp(App[None]):
         yield Header()
         prds = scan_prds(self._root, self._prd_dir)
         with Horizontal(id="main"):
-            yield PrdTree(prds, id="prd-tree")
-            yield Static(
-                "Select a PRD to get started",
-                id="content",
-            )
+            with Vertical(id="collection-card"):
+                yield PrdTree(prds, id="prd-tree")
+            with Vertical(id="detail-card"):
+                yield Static(
+                    "Select a PRD to get started",
+                    id="content",
+                )
         yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#collection-card").border_title = "Collection"
+        self.query_one("#detail-card").border_title = "Details"
 
     @on(PrdTree.PrdSelected)
     def _on_prd_selected(self, event: PrdTree.PrdSelected) -> None:
         prd = event.prd
         placeholder = self.query_one("#content", Static)
+        status_color = _status_style(prd.status)
+        icon = _status_icon(prd.status)
         lines = [
             f"[bold]{prd.title}[/bold]",
-            f"Status: {prd.status}",
-            f"Path: {prd.path}",
+            "",
+            f"  Status:  [{status_color}]{icon} {prd.status}[/{status_color}]"
+            if status_color
+            else f"  Status:  {icon} {prd.status}",
+            f"  Path:    [dim]{prd.path}[/dim]",
         ]
         if prd.task_files:
-            lines.append(f"Tasks: {', '.join(f.name for f in prd.task_files)}")
+            lines.append(f"  Tasks:   {', '.join(f.name for f in prd.task_files)}")
         if prd.gh_issue:
-            lines.append(f"Issue: {prd.gh_issue}")
+            lines.append(f"  Issue:   {prd.gh_issue}")
         placeholder.update("\n".join(lines))
