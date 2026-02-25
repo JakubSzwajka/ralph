@@ -8,80 +8,44 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import Footer, Header, Static, Tree
+from textual.widgets import Footer, Header, Markdown, Static, Tree
 
-from ralph.browser import PrdInfo, scan_prds
+from ralph.browser import DocDir, DocFile, scan_docs
 from ralph.core import RalphConfig
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _status_style(status: str) -> str:
-    return {
-        "accepted": "green",
-        "in-progress": "green",
-        "draft": "yellow",
-        "done": "dim",
-    }.get(status, "")
-
-
-def _status_icon(status: str) -> str:
-    return {
-        "accepted": "●",
-        "in-progress": "◐",
-        "draft": "○",
-        "done": "✓",
-    }.get(status, "?")
-
-
-# ---------------------------------------------------------------------------
-# Widgets
-# ---------------------------------------------------------------------------
-
-
-class PrdTree(Tree[PrdInfo]):
-    """Tree widget listing discovered PRDs with status indicators."""
-
-    class PrdSelected(Message):
-        def __init__(self, prd: PrdInfo) -> None:
+class DocTree(Tree[Path]):
+    class FileHighlighted(Message):
+        def __init__(self, path: Path) -> None:
             super().__init__()
-            self.prd = prd
+            self.path = path
 
     BINDINGS = [
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
     ]
 
-    def __init__(self, prds: list[PrdInfo], **kwargs: Any) -> None:
-        super().__init__("PRDs", **kwargs)
-        self._prds = prds
+    def __init__(self, doc_root: DocDir, **kwargs: Any) -> None:
+        super().__init__(doc_root.name, **kwargs)
+        self._doc_root = doc_root
 
     def on_mount(self) -> None:
         self.root.expand()
-        for prd in self._prds:
-            style = _status_style(prd.status)
-            icon = _status_icon(prd.status)
-            if style:
-                label = f"[{style}]{icon}[/{style}] {prd.title}"
+        self._build_tree(self.root, self._doc_root)
+
+    def _build_tree(self, tree_node: Any, doc_node: DocDir) -> None:
+        for child in doc_node.children:
+            if isinstance(child, DocDir):
+                branch = tree_node.add(f"[bold]{child.name}/[/bold]", data=None)
+                self._build_tree(branch, child)
+                branch.expand()
             else:
-                label = f"{icon} {prd.title}"
+                tree_node.add_leaf(child.path.name, data=child.path)
 
-            prd_node = self.root.add(label, data=prd)
-            for tf in prd.task_files:
-                prd_node.add_leaf(f"  {tf.name}", data=prd)
-
-    @on(Tree.NodeSelected)
-    def _on_selected(self, event: Tree.NodeSelected[PrdInfo]) -> None:
+    @on(Tree.NodeHighlighted)
+    def _on_highlighted(self, event: Tree.NodeHighlighted[Path]) -> None:
         if event.node.data is not None:
-            self.post_message(self.PrdSelected(event.node.data))
-
-
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
+            self.post_message(self.FileHighlighted(event.node.data))
 
 
 TCSS = """
@@ -99,7 +63,7 @@ TCSS = """
     padding: 0 1;
 }
 
-#prd-tree {
+#doc-tree {
     width: 1fr;
 }
 
@@ -110,20 +74,23 @@ TCSS = """
     border-title-align: center;
     margin-left: 1;
     padding: 0;
+    overflow-y: auto;
 }
 
 #content {
     width: 1fr;
-    height: 1fr;
     padding: 1 2;
     color: $text;
+}
+
+#md-content {
+    width: 1fr;
+    padding: 1 2;
 }
 """
 
 
 class RalphApp(App[None]):
-    """Two-pane TUI: PRD tree on the left, content area on the right."""
-
     TITLE = "ralph"
     SUB_TITLE = ""
     CSS = TCSS
@@ -144,37 +111,35 @@ class RalphApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        prds = scan_prds(self._root, self._prd_dir)
+        doc_root = scan_docs(self._root, self._prd_dir)
         with Horizontal(id="main"):
             with Vertical(id="collection-card"):
-                yield PrdTree(prds, id="prd-tree")
+                yield DocTree(doc_root, id="doc-tree")
             with Vertical(id="detail-card"):
-                yield Static(
-                    "Select a PRD to get started",
-                    id="content",
-                )
+                yield Static("Select a file to view its contents", id="content")
+                yield Markdown("", id="md-content")
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#collection-card").border_title = "Collection"
+        self.query_one("#collection-card").border_title = "Files"
         self.query_one("#detail-card").border_title = "Details"
+        self.query_one("#md-content").display = False
 
-    @on(PrdTree.PrdSelected)
-    def _on_prd_selected(self, event: PrdTree.PrdSelected) -> None:
-        prd = event.prd
-        placeholder = self.query_one("#content", Static)
-        status_color = _status_style(prd.status)
-        icon = _status_icon(prd.status)
-        lines = [
-            f"[bold]{prd.title}[/bold]",
-            "",
-            f"  Status:  [{status_color}]{icon} {prd.status}[/{status_color}]"
-            if status_color
-            else f"  Status:  {icon} {prd.status}",
-            f"  Path:    [dim]{prd.path}[/dim]",
-        ]
-        if prd.task_files:
-            lines.append(f"  Tasks:   {', '.join(f.name for f in prd.task_files)}")
-        if prd.gh_issue:
-            lines.append(f"  Issue:   {prd.gh_issue}")
-        placeholder.update("\n".join(lines))
+    @on(DocTree.FileHighlighted)
+    def _on_file_highlighted(self, event: DocTree.FileHighlighted) -> None:
+        content_widget = self.query_one("#content", Static)
+        md_widget = self.query_one("#md-content", Markdown)
+
+        try:
+            text = event.path.read_text(encoding="utf-8")
+        except OSError:
+            text = f"[dim]Cannot read {event.path}[/dim]"
+
+        if event.path.suffix == ".md":
+            content_widget.display = False
+            md_widget.display = True
+            md_widget.update(text)
+        else:
+            md_widget.display = False
+            content_widget.display = True
+            content_widget.update(text)

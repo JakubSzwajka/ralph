@@ -417,8 +417,8 @@ def parse_args(
         default=None,
         metavar="PATH",
         help=(
-            "Directory to scan for PRDs when using the interactive browser "
-            "(also reads prd_directory from ~/.ralph/config.json; default: docs/prds)"
+            "Directory to scan for docs when using the interactive browser "
+            "(also reads prd_directory from ~/.ralph/config.json; default: docs/)"
         ),
     )
     parser.add_argument(
