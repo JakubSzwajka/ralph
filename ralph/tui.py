@@ -43,6 +43,7 @@ class DocTree(Tree[Path]):
     BINDINGS = [
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
+        Binding("space", "toggle_select", "Select", show=False),
     ]
 
     def __init__(self, doc_root: DocDir, **kwargs: Any) -> None:
@@ -70,6 +71,17 @@ class DocTree(Tree[Path]):
         path = node.data
         check = "\\[x]" if path in self.selected else "\\[ ]"
         node.set_label(f"{check} {path.name}")
+
+    def action_toggle_select(self) -> None:
+        node = self.cursor_node
+        if node is not None and node.data is not None:
+            path = node.data
+            if path in self.selected:
+                self.selected.discard(path)
+            else:
+                self.selected.add(path)
+            self._update_node_label(node)
+            self.post_message(SelectionChanged(set(self.selected)))
 
     @on(Tree.NodeHighlighted)
     def _on_highlighted(self, event: Tree.NodeHighlighted[Path]) -> None:
