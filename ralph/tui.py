@@ -1,26 +1,34 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
-from textual import on
+from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import Footer, Header, Markdown, Static, Tree
+from textual.widgets import Footer, Header, Input, Markdown, RichLog, Static, Tree
 
 from ralph.browser import DocDir, DocFile, scan_docs
 from ralph.browser.scanner import parse_frontmatter
-from ralph.core import RalphConfig
+from ralph.core import IterationResult, RalphConfig, run_ralph
+
+
+class SelectionChanged(Message):
+    def __init__(self, selected: set[Path]) -> None:
+        super().__init__()
+        self.selected = selected
+
+
+class FileHighlighted(Message):
+    def __init__(self, path: Path) -> None:
+        super().__init__()
+        self.path = path
 
 
 class DocTree(Tree[Path]):
-    class FileHighlighted(Message):
-        def __init__(self, path: Path) -> None:
-            super().__init__()
-            self.path = path
-
     BINDINGS = [
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
@@ -29,6 +37,7 @@ class DocTree(Tree[Path]):
     def __init__(self, doc_root: DocDir, **kwargs: Any) -> None:
         super().__init__(doc_root.name, **kwargs)
         self._doc_root = doc_root
+        self.selected: set[Path] = set()
 
     def on_mount(self) -> None:
         self.root.expand()
@@ -41,12 +50,31 @@ class DocTree(Tree[Path]):
                 self._build_tree(branch, child)
                 branch.expand()
             else:
-                tree_node.add_leaf(child.path.name, data=child.path)
+                label = f"\\[ ] {child.path.name}"
+                tree_node.add_leaf(label, data=child.path)
+
+    def _update_node_label(self, node: Any) -> None:
+        if node.data is None:
+            return
+        path = node.data
+        check = "\\[x]" if path in self.selected else "\\[ ]"
+        node.set_label(f"{check} {path.name}")
 
     @on(Tree.NodeHighlighted)
     def _on_highlighted(self, event: Tree.NodeHighlighted[Path]) -> None:
         if event.node.data is not None:
-            self.post_message(self.FileHighlighted(event.node.data))
+            self.post_message(FileHighlighted(event.node.data))
+
+    @on(Tree.NodeSelected)
+    def _on_selected(self, event: Tree.NodeSelected[Path]) -> None:
+        if event.node.data is not None:
+            path = event.node.data
+            if path in self.selected:
+                self.selected.discard(path)
+            else:
+                self.selected.add(path)
+            self._update_node_label(event.node)
+            self.post_message(SelectionChanged(set(self.selected)))
 
 
 TCSS = """
@@ -97,6 +125,45 @@ TCSS = """
     width: 1fr;
     padding: 1 2;
 }
+
+#run-bar {
+    dock: bottom;
+    height: 3;
+    background: $primary-background-lighten-1;
+    padding: 0 2;
+}
+
+#run-bar-inner {
+    height: 1fr;
+    align: left middle;
+}
+
+#selection-count {
+    width: auto;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+#iterations-label {
+    width: auto;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+#iterations-input {
+    width: 8;
+}
+
+#run-hint {
+    width: auto;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+#run-log {
+    width: 1fr;
+    padding: 1 2;
+}
 """
 
 
@@ -106,6 +173,7 @@ class RalphApp(App[None]):
     CSS = TCSS
     BINDINGS = [
         Binding("q", "quit", "Quit"),
+        Binding("r", "start_run", "Run"),
     ]
 
     def __init__(
@@ -118,6 +186,7 @@ class RalphApp(App[None]):
         self._config = config
         self._prd_dir = prd_dir
         self._root = Path.cwd()
+        self._running = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -129,6 +198,13 @@ class RalphApp(App[None]):
                 yield Static("", id="meta-header")
                 yield Static("Select a file to view its contents", id="content")
                 yield Markdown("", id="md-content")
+                yield RichLog(id="run-log", wrap=True, markup=True)
+        with Horizontal(id="run-bar"):
+            with Horizontal(id="run-bar-inner"):
+                yield Static("0 files selected", id="selection-count")
+                yield Static("Iterations:", id="iterations-label")
+                yield Input(value="10", id="iterations-input", type="integer")
+                yield Static("[bold]r[/bold] to run", id="run-hint")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -136,6 +212,7 @@ class RalphApp(App[None]):
         self.query_one("#detail-card").border_title = "Details"
         self.query_one("#meta-header").display = False
         self.query_one("#md-content").display = False
+        self.query_one("#run-log").display = False
 
     def _format_meta_header(self, meta: dict[str, str]) -> str:
         if not meta:
@@ -146,11 +223,20 @@ class RalphApp(App[None]):
             lines.append(f"[bold]{label}:[/bold] {value or '[dim]—[/dim]'}")
         return "  ".join(lines)
 
-    @on(DocTree.FileHighlighted)
-    def _on_file_highlighted(self, event: DocTree.FileHighlighted) -> None:
+    @on(SelectionChanged)
+    def _on_selection_changed(self, event: SelectionChanged) -> None:
+        count = len(event.selected)
+        label = f"{count} file{'s' if count != 1 else ''} selected"
+        self.query_one("#selection-count", Static).update(label)
+
+    @on(FileHighlighted)
+    def _on_file_highlighted(self, event: FileHighlighted) -> None:
         content_widget = self.query_one("#content", Static)
         md_widget = self.query_one("#md-content", Markdown)
         meta_widget = self.query_one("#meta-header", Static)
+        run_log = self.query_one("#run-log", RichLog)
+
+        run_log.display = False
 
         try:
             text = event.path.read_text(encoding="utf-8")
@@ -170,3 +256,73 @@ class RalphApp(App[None]):
             md_widget.display = False
             content_widget.display = True
             content_widget.update(text)
+
+    def _switch_to_run_log(self) -> None:
+        self.query_one("#content", Static).display = False
+        self.query_one("#md-content", Markdown).display = False
+        self.query_one("#meta-header", Static).display = False
+        run_log = self.query_one("#run-log", RichLog)
+        run_log.clear()
+        run_log.display = True
+
+    def action_start_run(self) -> None:
+        if self._running:
+            return
+
+        tree = self.query_one("#doc-tree", DocTree)
+        if not tree.selected:
+            self.notify(
+                "No files selected. Use Space to select files.", severity="warning"
+            )
+            return
+
+        iterations_str = self.query_one("#iterations-input", Input).value
+        try:
+            iterations = int(iterations_str)
+        except ValueError:
+            iterations = 10
+
+        config = RalphConfig(
+            context_files=list(tree.selected),
+            iterations=iterations,
+            cwd=self._root,
+        )
+
+        self._running = True
+        self._switch_to_run_log()
+        self.query_one("#detail-card").border_title = "Run Output"
+        self._execute_run(config)
+
+    @work(exclusive=True)
+    async def _execute_run(self, config: RalphConfig) -> None:
+        run_log = self.query_one("#run-log", RichLog)
+        run_log.write(
+            f"[bold magenta]Starting ralph[/bold magenta] — {len(config.context_files)} files, {config.iterations} iterations"
+        )
+        run_log.write("")
+
+        try:
+            async for iteration, item in run_ralph(config):
+                if isinstance(item, str):
+                    for line in item.splitlines():
+                        stripped = line.strip()
+                        if stripped:
+                            run_log.write(stripped)
+                elif isinstance(item, IterationResult):
+                    status = (
+                        "[green]COMPLETE[/green]"
+                        if item.is_complete
+                        else "[blue]done[/blue]"
+                    )
+                    run_log.write(
+                        f"\n[bold]Iteration {item.iteration}[/bold] — {item.duration_s:.1f}s — {status}"
+                    )
+                    run_log.write("")
+                    if item.is_complete:
+                        break
+        except Exception as exc:
+            run_log.write(f"\n[red]Error: {exc}[/red]")
+        finally:
+            self._running = False
+            run_log.write("\n[dim]Run finished.[/dim]")
+            self.query_one("#detail-card").border_title = "Details"

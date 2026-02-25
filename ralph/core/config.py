@@ -12,6 +12,7 @@ from claude_agent_sdk import PermissionMode
 class RalphConfig:
     prd: Path = Path("PRD.md")
     tasks: Path | None = None
+    context_files: list[Path] = field(default_factory=list)
     iterations: int = 10
     cwd: Path = field(default_factory=Path.cwd)
     permission_mode: PermissionMode = "bypassPermissions"

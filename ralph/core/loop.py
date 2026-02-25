@@ -18,7 +18,7 @@ from claude_agent_sdk import (
 )
 
 from ralph.core.config import RalphConfig
-from ralph.core.prompts import SYSTEM_PROMPT, COMPLETION_SIGNAL, build_prompt
+from ralph.core.prompts import SYSTEM_PROMPT, COMPLETION_SIGNAL, build_prompt, build_prompt_from_files
 from ralph.traces import (
     RunRecorder,
     TextEvent,
@@ -44,7 +44,10 @@ async def run_iteration(
 ) -> AsyncIterator[str | IterationResult]:
     """Run a single Ralph iteration. Yields text chunks, then a final IterationResult."""
     start = time.monotonic()
-    prompt = build_prompt(config)
+    if config.context_files:
+        prompt = build_prompt_from_files(config.context_files, config.iterations)
+    else:
+        prompt = build_prompt(config)
 
     options = ClaudeAgentOptions(
         system_prompt=SYSTEM_PROMPT,

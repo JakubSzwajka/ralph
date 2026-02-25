@@ -3,10 +3,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-TEXT_EXTENSIONS = frozenset({
-    ".md", ".txt", ".rst", ".yaml", ".yml", ".toml", ".json",
-    ".cfg", ".ini", ".csv", ".log", ".py", ".sh", ".env.example",
-})
+TEXT_EXTENSIONS = frozenset(
+    {
+        ".md",
+        ".txt",
+        ".rst",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".json",
+        ".cfg",
+        ".ini",
+        ".csv",
+        ".log",
+        ".py",
+        ".sh",
+        ".env.example",
+    }
+)
 
 
 @dataclass
@@ -49,12 +63,12 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
         elif line.endswith(":"):
             meta[line[:-1].strip()] = ""
 
-    body = "\n".join(lines[end_line + 1:])
+    body = "\n".join(lines[end_line + 1 :])
     return meta, body
 
 
 def _is_text_file(p: Path) -> bool:
-    return p.suffix in TEXT_EXTENSIONS or p.name == ".env.example"
+    return p.suffix in TEXT_EXTENSIONS
 
 
 def scan_docs(root: Path, docs_dir: Path | None = None) -> DocDir:
@@ -70,7 +84,9 @@ def _scan_directory(directory: Path, base: Path) -> DocDir:
     if not directory.exists():
         return DocDir(name=directory.name, path=directory, children=[])
 
-    entries = sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+    entries = sorted(
+        directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
+    )
 
     for entry in entries:
         if entry.name.startswith("."):

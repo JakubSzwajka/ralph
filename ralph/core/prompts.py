@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -36,3 +37,11 @@ The whole PRD is @{config.prd}. The tasks list (or directory with stories) is in
 4. Review your changes and make sure they are correct.
 
 If the PRD is complete, output {COMPLETION_SIGNAL}."""
+
+
+def build_prompt_from_files(context_files: list[Path], iterations: int) -> str:
+    refs = "\n".join(f"@{path}" for path in context_files)
+    return f"""\
+Read the referenced files below. Find the highest-priority unfinished task, implement it, run tests, and update task status. If everything is complete, output {COMPLETION_SIGNAL}.
+
+{refs}"""
