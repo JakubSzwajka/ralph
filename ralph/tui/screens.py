@@ -11,7 +11,7 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Static
 
 from ralph.core import RalphConfig
-from ralph.core.run_meta import RunMeta, RunStatus, default_runs_dir
+from ralph.core.run_meta import RunMeta, RunStatus, cleanup_stale_runs, default_runs_dir
 
 
 class ConfirmRunScreen(ModalScreen[bool]):
@@ -179,8 +179,8 @@ def _fmt_duration(seconds: float) -> str:
 
 class RunBrowserScreen(Screen[None]):
     BINDINGS = [
-        Binding("q", "go_back", "Back", priority=True),
-        Binding("escape", "go_back", "Back", show=False, priority=True),
+        Binding("escape", "go_back", "Back", priority=True),
+        Binding("backspace", "go_back", "Back", show=False, priority=True),
         Binding("k", "kill_run", "Kill"),
     ]
 
@@ -284,6 +284,7 @@ class RunBrowserScreen(Screen[None]):
             except Exception:
                 pass
 
+        cleanup_stale_runs(default_runs_dir())
         self._runs = RunMeta.list_runs(default_runs_dir())
         table.clear()
         for run in self._runs:
@@ -323,6 +324,7 @@ class RunBrowserScreen(Screen[None]):
             f"[bold]Permission mode:[/bold] {run.permission_mode}",
             f"[bold]PRD:[/bold] {run.prd}",
             f"[bold]Tasks:[/bold] {run.tasks or '—'}",
+            f"[bold]Session:[/bold] [dim]{run.session_id or '—'}[/dim]",
             "",
             f"[bold]Iterations:[/bold] {run.iterations_completed}/{run.iterations_requested}",
             f"[bold]Duration:[/bold] {_fmt_duration(run.total_duration_s)}",
