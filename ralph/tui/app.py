@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import subprocess
-import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -15,10 +13,9 @@ from textual.widgets import Footer, Header, Markdown, Static
 from ralph.browser import scan_docs
 from ralph.browser.scanner import parse_frontmatter
 from ralph.core import RalphConfig
-from ralph.worker import serialize_config
 from ralph.core.run_meta import RunMeta, RunStatus, cleanup_stale_runs, default_runs_dir
 
-from .screens import ConfirmQuitScreen, ConfirmRunScreen, RunBrowserScreen
+from .screens import ConfirmQuitScreen, ConfirmRunScreen, RunBrowserScreen, RunScreen
 from .widgets import DocTree, FileHighlighted, SelectionChanged
 
 TCSS = """
@@ -128,6 +125,7 @@ class RalphApp(App[None]):
         self._config = config or RalphConfig()
         self._prd_dir = prd_dir
         self._root = Path.cwd()
+        self._run_active = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -158,6 +156,13 @@ class RalphApp(App[None]):
 
     def _cleanup_orphaned_runs(self) -> None:
         cleanup_stale_runs(default_runs_dir())
+
+    def _update_run_hint(self) -> None:
+        hint_widget = self.query_one("#run-hint", Static)
+        if self._run_active:
+            hint_widget.update("[dim][bold]r[/bold] to run (run active)[/dim]")
+        else:
+            hint_widget.update("[bold]r[/bold] to run")
 
     def _format_meta_header(self, meta: dict[str, str]) -> str:
         if not meta:
@@ -215,6 +220,10 @@ class RalphApp(App[None]):
         self.push_screen(RunBrowserScreen())
 
     def action_start_run(self) -> None:
+        if self._run_active:
+            self.notify("A run is already active", severity="warning")
+            return
+
         tree = self.query_one("#doc-tree", DocTree)
         if not tree.selected:
             self.notify(
@@ -237,17 +246,15 @@ class RalphApp(App[None]):
         self._launch_worker(self._pending_config)
 
     def _launch_worker(self, config: RalphConfig) -> None:
-        config_path = serialize_config(config)
-
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "ralph.worker", config_path],
-            start_new_session=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+        screen = RunScreen(
+            config=config,
+            context_files=list(config.context_files),
+            iterations=config.iterations,
         )
+        self._run_active = True
+        self._update_run_hint()
+        self.push_screen(screen, callback=self._on_run_screen_popped)  # type: ignore[no-matching-overload]
 
-        run_id = proc.stdout.readline().decode().strip()  # type: ignore[union-attr]
-        proc.stdout.close()  # type: ignore[union-attr]
-
-        self.notify(f"Run {run_id} started")
-        self.query_one("#run-hint", Static).update(f"Launched [bold]{run_id}[/bold]")
+    def _on_run_screen_popped(self) -> None:
+        self._run_active = False
+        self._update_run_hint()
