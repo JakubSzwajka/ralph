@@ -1,4 +1,4 @@
-.PHONY: check format lint types ci run
+.PHONY: check format lint types ci run install
 
 check: lint types format ## Run all checks
 
@@ -18,6 +18,9 @@ lint-fix: ## Auto-fix lint issues
 	uv run ruff check --fix ralph/
 
 ci: check ## Alias for check (CI pipeline)
+
+install: ## Install ralph globally via uv tool
+	uv tool install . --editable
 
 run: ## Launch ralph TUI
 	uv run ralph $(ARGS)
