@@ -33,8 +33,8 @@ def parse_args(
         "iterations",
         type=int,
         nargs="?",
-        default=10,
-        help="Number of iterations to run (default: 10)",
+        default=None,
+        help="Number of iterations to run (default: 20)",
     )
     parser.add_argument(
         "--prd",
@@ -121,6 +121,13 @@ def parse_args(
             file_config.get("discord_min_interval", _interval_default)
         )
 
+    # Resolve iterations: CLI flag > config file > default (20)
+    _iterations_default = 20
+    if args.iterations is not None:
+        iterations: int = args.iterations
+    else:
+        iterations = int(file_config.get("iterations", _iterations_default))
+
     # Resolve PRD scan directory: CLI flag > config file > None (use browser default)
     if args.prd_dir is not None:
         # User explicitly passed --prd-dir; resolve relative paths against cwd.
@@ -136,7 +143,7 @@ def parse_args(
         RalphConfig(
             prd=prd,
             tasks=args.tasks,
-            iterations=args.iterations,
+            iterations=iterations,
             cwd=args.cwd,
             permission_mode=args.permission_mode,
             model=args.model,

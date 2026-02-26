@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from collections.abc import AsyncIterator
 
 from claude_agent_sdk import (
+    query,
     ClaudeAgentOptions,
-    ClaudeSDKClient,
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
@@ -49,16 +49,14 @@ async def run_iteration(
         permission_mode=config.permission_mode,
         cwd=str(config.cwd),
         model=config.model,
-        max_turns=config.max_turns,
+        # max_turns=config.max_turns,
     )
 
     full_text: list[str] = []
 
-    client = ClaudeSDKClient(options=options)
+    stream = query(prompt=prompt, options=options)
     try:
-        await client.connect()
-        await client.query(prompt, session_id=session_id or "default")
-        async for message in client.receive_messages():
+        async for message in stream:
             match message:
                 case msg if hasattr(msg, "content") and hasattr(msg, "model"):
                     for block in msg.content:
@@ -96,7 +94,7 @@ async def run_iteration(
                 case _:
                     pass
     finally:
-        await client.disconnect()
+        await stream.aclose()
 
     combined = "\n".join(full_text)
     elapsed = time.monotonic() - start

@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import asyncio
 import os
-import signal
-import subprocess
-import sys
+import time
+import uuid
+from datetime import datetime, UTC
 
 from rich.console import Console
 from rich.panel import Panel
 
 from ralph.core import RalphConfig
-from ralph.core.run_meta import RunMeta, RunStatus, default_runs_dir
-from ralph.notifier import DiscordNotifier
-from ralph.worker import serialize_config
+from ralph.core.loop import IterationResult, run_ralph
+from ralph.core.run_meta import RunMeta, RunStatus, default_runs_dir, generate_run_id
 
 console = Console()
 
@@ -28,103 +26,102 @@ async def _run_headless(config: RalphConfig) -> int:
         )
     )
 
-    config_path = serialize_config(config)
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "ralph.worker", config_path],
-        start_new_session=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
-
-    run_id = proc.stdout.readline().decode().strip()  # type: ignore[union-attr]
-    proc.stdout.close()  # type: ignore[union-attr]
-
-    if not run_id:
-        console.print("[red]Failed to start worker — no run_id received[/red]")
-        return 1
-
-    console.print(f"[dim]run_id: {run_id}  pid: {proc.pid}[/dim]")
-
+    run_id = generate_run_id()
     runs_dir = default_runs_dir()
-    meta_path = runs_dir / run_id / "meta.json"
+    session_id = uuid.uuid4().hex
 
-    notifier: DiscordNotifier | None = None
-    if config.discord_notify and config.discord_webhook_url:
-        notifier = DiscordNotifier(
-            webhook_url=config.discord_webhook_url,
-            min_interval=config.discord_min_interval,
-        )
+    log_path = runs_dir / run_id / "output.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file = open(log_path, "w")
 
-    last_iterations = 0
-    meta: RunMeta | None = None
+    meta = RunMeta(
+        run_id=run_id,
+        pid=os.getpid(),
+        started_at=datetime.now(UTC).isoformat(),
+        status=RunStatus.RUNNING,
+        prd=str(config.prd),
+        tasks=str(config.tasks) if config.tasks else None,
+        iterations_requested=config.iterations,
+        model=config.model,
+        permission_mode=str(config.permission_mode),
+        session_id=session_id,
+        context_files=[str(p) for p in config.context_files],
+    )
+    meta.write(runs_dir)
 
+    console.print(f"[dim]run_id: {run_id}[/dim]")
+
+    start = time.monotonic()
     try:
-        while True:
-            await asyncio.sleep(1)
-
-            if not meta_path.exists():
-                continue
-
-            try:
-                meta = RunMeta.read(meta_path)
-            except Exception:
-                continue
-
-            if meta.iterations_completed > last_iterations:
-                console.print(
-                    f"  iteration {meta.iterations_completed}/{meta.iterations_requested}  "
-                    f"elapsed: {meta.total_duration_s:.1f}s"
+        async for _iteration, item in run_ralph(config, session_id=session_id):
+            if isinstance(item, str):
+                print(item, end="", flush=True)
+                log_file.write(item)
+                log_file.flush()
+            elif isinstance(item, IterationResult):
+                log_file.write(
+                    f"\n--- Iteration {item.iteration} done ({item.duration_s:.1f}s) ---\n"
                 )
+                log_file.flush()
+                elapsed = time.monotonic() - start
+                meta.update(
+                    runs_dir,
+                    iterations_completed=item.iteration,
+                    total_duration_s=round(elapsed, 2),
+                )
+                console.print(
+                    f"  iteration {item.iteration}/{config.iterations}  "
+                    f"elapsed: {elapsed:.1f}s"
+                )
+                if item.is_complete:
+                    break
 
-                if notifier is not None:
-                    await notifier.send(
-                        iteration=meta.iterations_completed,
-                        summary=f"Iteration {meta.iterations_completed} complete",
-                        duration_s=meta.total_duration_s,
-                        is_complete=meta.status == RunStatus.DONE,
-                    )
-
-                last_iterations = meta.iterations_completed
-
-            if meta.status != RunStatus.RUNNING:
-                break
-
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Interrupted — sending SIGTERM to worker[/yellow]")
-        try:
-            m = RunMeta.read(meta_path)
-            if m.pid:
-                os.kill(m.pid, signal.SIGTERM)
-                await asyncio.sleep(2)
-        except Exception:
-            pass
-        return 1
-    finally:
-        try:
-            os.unlink(config_path)
-        except OSError:
-            pass
-
-    if meta is None:
-        console.print("[red]Worker never wrote meta.json[/red]")
-        return 1
-
-    if meta.status == RunStatus.DONE:
+        elapsed = time.monotonic() - start
+        meta.update(
+            runs_dir,
+            status=RunStatus.DONE,
+            completed_at=datetime.now(UTC).isoformat(),
+            total_duration_s=round(elapsed, 2),
+        )
         console.print(
             Panel(
                 f"[bold green]DONE[/bold green] after {meta.iterations_completed} iteration(s)\n"
-                f"Total time: {meta.total_duration_s:.1f}s",
+                f"Total time: {elapsed:.1f}s",
                 border_style="green",
             )
         )
         return 0
 
-    label = "ERROR" if meta.status == RunStatus.ERROR else "KILLED"
-    console.print(
-        Panel(
-            f"[bold red]{label}[/bold red] after {meta.iterations_completed} iteration(s)\n"
-            f"Total time: {meta.total_duration_s:.1f}s",
-            border_style="red",
+    except KeyboardInterrupt:
+        elapsed = time.monotonic() - start
+        meta.update(
+            runs_dir,
+            status=RunStatus.KILLED,
+            completed_at=datetime.now(UTC).isoformat(),
+            total_duration_s=round(elapsed, 2),
         )
-    )
-    return 1
+        console.print("\n[yellow]Interrupted. Stopping ralph.[/yellow]")
+        return 130
+
+    except Exception:
+        import traceback
+
+        elapsed = time.monotonic() - start
+        traceback.print_exc(file=log_file)
+        meta.update(
+            runs_dir,
+            status=RunStatus.ERROR,
+            completed_at=datetime.now(UTC).isoformat(),
+            total_duration_s=round(elapsed, 2),
+        )
+        console.print(
+            Panel(
+                f"[bold red]ERROR[/bold red] after {meta.iterations_completed} iteration(s)\n"
+                f"Total time: {elapsed:.1f}s",
+                border_style="red",
+            )
+        )
+        return 1
+
+    finally:
+        log_file.close()
