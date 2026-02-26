@@ -16,15 +16,29 @@ console = Console()
 
 
 async def _run_headless(config: RalphConfig) -> int:
+    prompt_files = (
+        list(config.context_files)
+        if config.context_files
+        else [config.prd, *([config.tasks] if config.tasks else [])]
+    )
+    prd_label = (
+        f"{len(config.context_files)} files"
+        if config.context_files
+        else str(config.prd)
+    )
     console.print(
         Panel(
             f"[bold magenta]ralph[/bold magenta] — autonomous coding agent\n"
-            f"PRD: [cyan]{config.prd}[/cyan]  "
+            f"PRD: [cyan]{prd_label}[/cyan]  "
             f"Tasks: [cyan]{config.tasks or 'auto'}[/cyan]  "
             f"Iterations: [cyan]{config.iterations}[/cyan]",
             border_style="magenta",
         )
     )
+    if prompt_files:
+        console.print("[dim]prompt files:[/dim]")
+        for path in prompt_files:
+            console.print(f"[dim]- {path}[/dim]")
 
     run_id = generate_run_id()
     runs_dir = default_runs_dir()
@@ -55,23 +69,23 @@ async def _run_headless(config: RalphConfig) -> int:
     try:
         async for _iteration, item in run_ralph(config, session_id=session_id):
             if isinstance(item, str):
-                print(item, end="", flush=True)
-                log_file.write(item)
+                print(item, flush=True)
+                log_file.write(item + "\n")
                 log_file.flush()
             elif isinstance(item, IterationResult):
-                log_file.write(
-                    f"\n--- Iteration {item.iteration} done ({item.duration_s:.1f}s) ---\n"
+                separator = (
+                    f"\n{'─' * 60}\n"
+                    f"  Iteration {item.iteration} complete ({item.duration_s:.1f}s)\n"
+                    f"{'─' * 60}\n"
                 )
+                print(separator)
+                log_file.write(separator)
                 log_file.flush()
                 elapsed = time.monotonic() - start
                 meta.update(
                     runs_dir,
                     iterations_completed=item.iteration,
                     total_duration_s=round(elapsed, 2),
-                )
-                console.print(
-                    f"  iteration {item.iteration}/{config.iterations}  "
-                    f"elapsed: {elapsed:.1f}s"
                 )
                 if item.is_complete:
                     break

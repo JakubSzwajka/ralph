@@ -103,7 +103,10 @@ async def run_iteration(
                 case _:
                     pass
     finally:
-        await stream.aclose()
+        try:
+            await stream.aclose()
+        except (RuntimeError, GeneratorExit):
+            pass  # anyio cancel-scope cleanup race on early break
 
     combined = "\n".join(full_text)
     elapsed = time.monotonic() - start

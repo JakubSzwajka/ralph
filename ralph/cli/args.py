@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from glob import glob, has_magic
 from pathlib import Path
 
 from ralph.config import load_config
@@ -30,17 +31,14 @@ def parse_args(
         description="Autonomous coding agent loop powered by Claude",
     )
     parser.add_argument(
-        "iterations",
-        type=int,
-        nargs="?",
-        default=None,
-        help="Number of iterations to run (default: 20)",
-    )
-    parser.add_argument(
         "--prd",
-        type=Path,
+        type=str,
+        nargs="+",
         default=None,
-        help="Path to PRD file (omit to use the interactive file browser)",
+        help=(
+            "Path(s) to PRD files. Supports multiple files and glob patterns "
+            "(omit to use the interactive file browser)"
+        ),
     )
     parser.add_argument(
         "--tasks", type=Path, default=None, help="Path to tasks list or directory"
@@ -55,7 +53,10 @@ def parse_args(
     )
     parser.add_argument("--model", default=None, help="Claude model to use")
     parser.add_argument(
-        "--max-turns", type=int, default=None, help="Max turns per iteration"
+        "--max-turns",
+        type=int,
+        default=None,
+        help="Max Ralph loop iterations (default: 20)",
     )
     parser.add_argument(
         "--discord-webhook",
@@ -95,7 +96,44 @@ def parse_args(
     # Track whether the user explicitly provided --prd so main() can decide
     # whether to show the interactive browser.
     prd_explicit: bool = args.prd is not None
-    prd: Path = args.prd if prd_explicit else Path("PRD.md")
+    context_files: list[Path] = []
+    if prd_explicit:
+        prd_candidates: list[Path] = []
+        for raw in args.prd:
+            expanded = os.path.expanduser(raw)
+            if has_magic(expanded):
+                pattern = (
+                    expanded
+                    if Path(expanded).is_absolute()
+                    else str(args.cwd / expanded)
+                )
+                matches = sorted(Path(p) for p in glob(pattern, recursive=True))
+                prd_candidates.extend(p for p in matches if p.is_file())
+            else:
+                path = Path(expanded)
+                prd_candidates.append(path if path.is_absolute() else args.cwd / path)
+
+        # Preserve order while dropping duplicates from overlapping globs.
+        unique_candidates: list[Path] = []
+        seen: set[str] = set()
+        for p in prd_candidates:
+            key = str(p)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_candidates.append(p)
+
+        if unique_candidates:
+            prd: Path = unique_candidates[0]
+            if len(unique_candidates) > 1:
+                context_files = unique_candidates
+        else:
+            # No glob match: keep literal path so main() can show a clear
+            # "file not found" error.
+            first = Path(os.path.expanduser(args.prd[0]))
+            prd = first if first.is_absolute() else args.cwd / first
+    else:
+        prd = Path("PRD.md")
 
     # Load config file values (lowest precedence after defaults)
     file_config = load_config()
@@ -121,10 +159,10 @@ def parse_args(
             file_config.get("discord_min_interval", _interval_default)
         )
 
-    # Resolve iterations: CLI flag > config file > default (20)
+    # Resolve iterations: --max-turns > config file > default (20)
     _iterations_default = 20
-    if args.iterations is not None:
-        iterations: int = args.iterations
+    if args.max_turns is not None:
+        iterations = args.max_turns
     else:
         iterations = int(file_config.get("iterations", _iterations_default))
 
@@ -143,11 +181,12 @@ def parse_args(
         RalphConfig(
             prd=prd,
             tasks=args.tasks,
+            context_files=context_files,
             iterations=iterations,
             cwd=args.cwd,
             permission_mode=args.permission_mode,
             model=args.model,
-            max_turns=args.max_turns,
+            max_turns=None,
             discord_webhook_url=discord_webhook_url,
             discord_min_interval=discord_min_interval,
         ),

@@ -12,6 +12,12 @@ CLI entry point and headless runner. Parses arguments, resolves config, and disp
 
 Owns argument parsing, config resolution (CLI > config file > defaults), and headless execution. Delegates TUI mode to `ralph.tui` and the agent loop to `ralph.core`.
 
+## PRD Argument Behavior
+
+- `--prd` accepts one or more file paths.
+- `--prd` also accepts wildcard patterns (for example `"docs/prds/*/PRD.md"`).
+- When `--prd` resolves to multiple files, they are passed as context files to the agent run.
+
 ## Read Next
 
 - [Core](../core/README.md)

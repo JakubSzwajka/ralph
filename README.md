@@ -47,10 +47,16 @@ Or set `RALPH_DISCORD_WEBHOOK` env var for Discord notifications.
 
 ```bash
 # Launch TUI — browse PRDs, pick one, and run
-ralph 5
+ralph --max-turns 5
 
-# Run a specific PRD headless
-ralph 10 --prd docs/prds/my-feature --tasks docs/prds/my-feature/tasks.md
+# Run headless with one PRD file
+ralph --max-turns 10 --no-tui --prd docs/prds/my-feature/PRD.md
+
+# Run headless with multiple PRD files (explicit list)
+ralph --max-turns 10 --no-tui --prd docs/prds/a/PRD.md docs/prds/b/PRD.md
+
+# Run headless with wildcard(s)
+ralph --max-turns 10 --no-tui --prd "docs/prds/*/PRD.md"
 
 # View past runs
 ralph runs
@@ -69,9 +75,10 @@ ralph runs
 
 | Flag | Description |
 |---|---|
-| `--prd PATH` | PRD directory path |
+| `--prd PATH [PATH ...]` | PRD file path(s); supports wildcard patterns |
 | `--tasks PATH` | Task list markdown file |
 | `--cwd PATH` | Working directory for the agent |
+| `--max-turns N` | Max Ralph loop iterations |
 | `--permission-mode` | `default`, `acceptEdits`, `plan`, `bypassPermissions` |
 | `--model` | Claude model to use |
 | `--no-tui` | Headless mode (Rich output) |
