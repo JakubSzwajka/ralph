@@ -118,18 +118,42 @@ class RunBrowserScreen(Screen[None]):
     #run-browser-wrap {
         width: 1fr;
         height: 1fr;
-        margin: 1 2;
+        margin: 1 1;
     }
 
     #run-table-card {
-        width: 1fr;
-        height: 2fr;
+        width: 55;
+        height: 1fr;
         border: round $primary-background-lighten-2;
         border-title-color: $text-muted;
         border-title-align: center;
+        padding: 0 1;
+    }
+
+    #run-right-col {
+        width: 1fr;
+        height: 1fr;
+        margin-left: 1;
     }
 
     #run-detail-card {
+        width: 1fr;
+        height: auto;
+        max-height: 18;
+        border: round $primary-background-lighten-2;
+        border-title-color: $text-muted;
+        border-title-align: center;
+        padding: 1 2;
+        overflow-y: auto;
+    }
+
+    #run-detail {
+        width: 1fr;
+        height: auto;
+        color: $text-muted;
+    }
+
+    #run-log-card {
         width: 1fr;
         height: 1fr;
         border: round $primary-background-lighten-2;
@@ -140,7 +164,7 @@ class RunBrowserScreen(Screen[None]):
         overflow-y: auto;
     }
 
-    #run-detail {
+    #run-log {
         width: 1fr;
         height: auto;
         color: $text-muted;
@@ -155,16 +179,20 @@ class RunBrowserScreen(Screen[None]):
     """
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="run-browser-wrap"):
+        with Horizontal(id="run-browser-wrap"):
             with Vertical(id="run-table-card"):
                 yield DataTable(id="run-table", cursor_type="row")
-            with Vertical(id="run-detail-card"):
-                yield Static("Select a run to view details", id="run-detail")
+            with Vertical(id="run-right-col"):
+                with Vertical(id="run-detail-card"):
+                    yield Static("Select a run to view details", id="run-detail")
+                with Vertical(id="run-log-card"):
+                    yield Static("", id="run-log")
         yield Static("[bold]q[/bold] back  [bold]k[/bold] kill", id="run-hints")
 
     def on_mount(self) -> None:
         self.query_one("#run-table-card").border_title = "Run History"
         self.query_one("#run-detail-card").border_title = "Details"
+        self.query_one("#run-log-card").border_title = "Output Log"
         table = self.query_one("#run-table", DataTable)
         table.add_columns("Status", "Run ID", "Progress", "Duration", "Ctx Files")
         self._runs: list[RunMeta] = []
@@ -221,18 +249,20 @@ class RunBrowserScreen(Screen[None]):
             lines.append("")
             lines.append("[bold]Context files:[/bold] —")
 
+        detail.update("\n".join(lines))
+
+        log_widget = self.query_one("#run-log", Static)
         try:
             log_path = default_runs_dir() / run.run_id / "output.log"
             if log_path.is_file():
-                tail = log_path.read_text(errors="replace").splitlines()[-10:]
-                lines.append("")
-                lines.append("[bold]Output log (last 10 lines):[/bold]")
-                for ln in tail:
-                    lines.append(f"  [dim]{ln}[/dim]")
+                text = log_path.read_text(errors="replace")
+                log_widget.update(
+                    f"[dim]{text}[/dim]" if text.strip() else "[dim]Empty[/dim]"
+                )
+            else:
+                log_widget.update("[dim]No output log[/dim]")
         except Exception:
-            pass
-
-        detail.update("\n".join(lines))
+            log_widget.update("[dim]Could not read log[/dim]")
 
     def action_go_back(self) -> None:
         self.app.pop_screen()

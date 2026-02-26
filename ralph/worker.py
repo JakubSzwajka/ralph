@@ -63,8 +63,6 @@ async def worker_main(config_path: str) -> None:
     log_path = runs_dir / run_id / "output.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "w")
-    sys.stdout = log_file  # type: ignore[assignment]
-    sys.stderr = log_file  # type: ignore[assignment]
 
     meta = RunMeta(
         run_id=run_id,
@@ -126,7 +124,7 @@ async def worker_main(config_path: str) -> None:
     except Exception:
         import traceback
 
-        traceback.print_exc()
+        traceback.print_exc(file=log_file)
         meta.update(
             runs_dir,
             status=RunStatus.ERROR,

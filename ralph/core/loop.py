@@ -88,9 +88,12 @@ async def run_iteration(
                             full_text.append(slug)
                             yield slug
                         else:
-                            print(f"Unknown block type: {block}")
+                            pass
+                    combined_so_far = "\n".join(full_text)
+                    if COMPLETION_SIGNAL in combined_so_far:
+                        break
                 case _:
-                    print(f"Unknown message type: {type(msg)}")
+                    pass
     finally:
         await client.disconnect()
 
