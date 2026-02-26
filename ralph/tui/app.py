@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ralph.tui.css import TCSS
 
 from dataclasses import replace
 from pathlib import Path
@@ -17,92 +18,6 @@ from ralph.core.run_meta import RunMeta, RunStatus, cleanup_stale_runs, default_
 
 from .screens import ConfirmQuitScreen, ConfirmRunScreen, RunBrowserScreen, RunScreen
 from .widgets import DocTree, FileHighlighted, SelectionChanged
-
-TCSS = """
-#main {
-    width: 1fr;
-    height: 1fr;
-    margin: 1 1;
-}
-
-#collection-card {
-    width: 40;
-    border: round $primary-background-lighten-2;
-    border-title-color: $text-muted;
-    border-title-align: center;
-    padding: 0 1;
-}
-
-#doc-tree {
-    width: 1fr;
-}
-
-#detail-card {
-    width: 1fr;
-    border: round $primary-background-lighten-2;
-    border-title-color: $text-muted;
-    border-title-align: center;
-    margin-left: 1;
-    padding: 0;
-    overflow-y: auto;
-}
-
-#content {
-    width: 1fr;
-    padding: 1 2;
-    color: $text;
-}
-
-#meta-header {
-    width: 1fr;
-    padding: 1 2;
-    background: $primary-background-lighten-1;
-    color: $text-muted;
-    height: auto;
-    max-height: 5;
-}
-
-#md-content {
-    width: 1fr;
-    padding: 1 2;
-}
-
-#run-bar {
-    height: 5;
-    border: round $primary-background-lighten-2;
-    border-title-color: $text-muted;
-    border-title-align: center;
-    margin: 0 1;
-    padding: 0 2;
-}
-
-#run-bar-inner {
-    height: 1fr;
-    align: left middle;
-}
-
-#selection-count {
-    width: auto;
-    padding: 0 2;
-    color: $text-muted;
-}
-
-#iterations-label {
-    width: auto;
-    padding: 0 1;
-    color: $text-muted;
-}
-
-#iterations-input {
-    width: 8;
-}
-
-#run-hint {
-    width: auto;
-    padding: 0 2;
-    color: $text-muted;
-}
-"""
 
 
 class RalphApp(App[None]):
@@ -167,7 +82,7 @@ class RalphApp(App[None]):
     def _format_meta_header(self, meta: dict[str, str]) -> str:
         if not meta:
             return ""
-        lines = []
+        lines: list[str] = []
         for key, value in meta.items():
             label = key.replace("-", " ").replace("_", " ").title()
             lines.append(f"[bold]{label}:[/bold] {value or '[dim]—[/dim]'}")
