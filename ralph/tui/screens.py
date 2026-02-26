@@ -88,6 +88,80 @@ class ConfirmRunScreen(ModalScreen[bool]):
         self.dismiss(True)
 
 
+class ConfirmQuitScreen(ModalScreen[bool]):
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "confirm", "Confirm"),
+    ]
+
+    DEFAULT_CSS = """
+    ConfirmQuitScreen {
+        align: center middle;
+    }
+
+    #quit-dialog {
+        width: 60;
+        height: auto;
+        border: round $primary-background-lighten-2;
+        border-title-color: $text-muted;
+        border-title-align: center;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #quit-body {
+        width: 1fr;
+        height: auto;
+        padding: 1 0;
+    }
+
+    #quit-buttons {
+        height: 3;
+        align: right middle;
+    }
+
+    #quit-buttons Button {
+        margin-left: 1;
+    }
+    """
+
+    def __init__(self, active_runs: int = 0) -> None:
+        super().__init__()
+        self._active_runs = active_runs
+
+    def compose(self) -> ComposeResult:
+        if self._active_runs > 0:
+            body = (
+                f"You have {self._active_runs} active run(s). "
+                "Are you sure you want to quit?"
+            )
+        else:
+            body = "Are you sure you want to quit?"
+        with Vertical(id="quit-dialog"):
+            yield Static(body, id="quit-body")
+            with Horizontal(id="quit-buttons"):
+                yield Button("Cancel", id="cancel-btn", variant="default")
+                yield Button("Quit", id="quit-btn", variant="error")
+
+    def on_mount(self) -> None:
+        self.query_one("#quit-dialog").border_title = "Confirm Quit"
+        self.query_one("#quit-btn", Button).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#cancel-btn")
+    def _cancel(self) -> None:
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#quit-btn")
+    def _confirm(self) -> None:
+        self.dismiss(True)
+
+
 _STATUS_BADGE = {
     RunStatus.DONE: "[green]●[/green]",
     RunStatus.RUNNING: "[blue]●[/blue]",
@@ -105,8 +179,8 @@ def _fmt_duration(seconds: float) -> str:
 
 class RunBrowserScreen(Screen[None]):
     BINDINGS = [
-        Binding("q", "go_back", "Back"),
-        Binding("escape", "go_back", "Back", show=False),
+        Binding("q", "go_back", "Back", priority=True),
+        Binding("escape", "go_back", "Back", show=False, priority=True),
         Binding("k", "kill_run", "Kill"),
     ]
 
@@ -201,6 +275,15 @@ class RunBrowserScreen(Screen[None]):
 
     def _refresh_runs(self) -> None:
         table = self.query_one("#run-table", DataTable)
+        prev_key: str | None = None
+        if table.row_count > 0:
+            try:
+                prev_key = table.coordinate_to_cell_key(
+                    table.cursor_coordinate
+                ).row_key.value
+            except Exception:
+                pass
+
         self._runs = RunMeta.list_runs(default_runs_dir())
         table.clear()
         for run in self._runs:
@@ -209,6 +292,12 @@ class RunBrowserScreen(Screen[None]):
             duration = _fmt_duration(run.total_duration_s)
             ctx = str(len(run.context_files))
             table.add_row(badge, run.run_id, progress, duration, ctx, key=run.run_id)
+
+        if prev_key and table.row_count > 0:
+            for idx, run in enumerate(self._runs):
+                if run.run_id == prev_key:
+                    table.move_cursor(row=idx)
+                    break
 
     @on(DataTable.RowHighlighted)
     def _on_row_highlighted(self, event: DataTable.RowHighlighted) -> None:

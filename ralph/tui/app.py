@@ -19,7 +19,7 @@ from ralph.core import RalphConfig
 from ralph.worker import serialize_config
 from ralph.core.run_meta import RunMeta, RunStatus, default_runs_dir
 
-from .screens import ConfirmRunScreen, RunBrowserScreen
+from .screens import ConfirmQuitScreen, ConfirmRunScreen, RunBrowserScreen
 from .widgets import DocTree, FileHighlighted, SelectionChanged
 
 TCSS = """
@@ -114,7 +114,7 @@ class RalphApp(App[None]):
     SUB_TITLE = ""
     CSS = TCSS
     BINDINGS = [
-        Binding("q", "quit", "Quit", priority=True),
+        Binding("q", "confirm_quit", "Quit", priority=True),
         Binding("r", "start_run", "Run", priority=True),
         Binding("h", "show_runs", "History"),
     ]
@@ -210,6 +210,18 @@ class RalphApp(App[None]):
             md_widget.display = False
             content_widget.display = True
             content_widget.update(text)
+
+    def action_confirm_quit(self) -> None:
+        active = sum(
+            1
+            for r in RunMeta.list_runs(default_runs_dir())
+            if r.status == RunStatus.RUNNING
+        )
+        self.push_screen(ConfirmQuitScreen(active), callback=self._on_confirm_quit)  # type: ignore[no-matching-overload]
+
+    def _on_confirm_quit(self, confirmed: bool) -> None:
+        if confirmed:
+            self.exit()
 
     def action_show_runs(self) -> None:
         self.push_screen(RunBrowserScreen())
