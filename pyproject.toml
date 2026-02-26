@@ -3,6 +3,8 @@ name = "ralph"
 version = "0.1.0"
 description = "Autonomous coding agent loop powered by Claude"
 readme = "README.md"
+license = "MIT"
+authors = [{ name = "Jakub Szwajka", email = "szwajkajakub@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
     "claude-agent-sdk>=0.1.41",
