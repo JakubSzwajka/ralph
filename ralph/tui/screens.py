@@ -18,7 +18,13 @@ from textual.widgets import Button, DataTable, RichLog, Static
 
 from ralph.core import RalphConfig
 from ralph.core.loop import IterationResult, run_ralph
-from ralph.core.run_meta import RunMeta, RunStatus, cleanup_stale_runs, default_runs_dir, generate_run_id
+from ralph.core.run_meta import (
+    RunMeta,
+    RunStatus,
+    cleanup_stale_runs,
+    default_runs_dir,
+    generate_run_id,
+)
 
 
 class ConfirmRunScreen(ModalScreen[bool]):
@@ -432,7 +438,9 @@ class RunScreen(Screen[None]):
     }
     """
 
-    def __init__(self, config: RalphConfig, context_files: list[Path], iterations: int) -> None:
+    def __init__(
+        self, config: RalphConfig, context_files: list[Path], iterations: int
+    ) -> None:
         super().__init__()
         self._config = config
         self._context_files = context_files
@@ -508,7 +516,9 @@ class RunScreen(Screen[None]):
         log.clear()
 
         try:
-            async for _iteration, item in run_ralph(self._config, session_id=session_id):
+            async for _iteration, item in run_ralph(
+                self._config, session_id=session_id
+            ):
                 if isinstance(item, str):
                     log.write(item)
                     log_file.write(item)

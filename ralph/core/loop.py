@@ -16,6 +16,7 @@ from claude_agent_sdk import (
 )
 
 from ralph.core.config import RalphConfig
+from ralph.core.format_stream import format_block
 from ralph.core.prompts import (
     SYSTEM_PROMPT,
     COMPLETION_SIGNAL,
@@ -69,17 +70,25 @@ async def run_iteration(
                             full_text.append(block.text)
                             yield block.text
                         elif isinstance(block, ThinkingBlock):
+                            # Suppressed — keep raw slug in full_text for
+                            # COMPLETION_SIGNAL detection, but don't yield.
                             slug = f"{block.signature}::{block.thinking}"
                             full_text.append(slug)
-                            yield slug
                         elif isinstance(block, ToolUseBlock):
-                            slug = f"{block.name}::{block.input!s}"
-                            full_text.append(slug)
-                            yield slug
+                            formatted = format_block(
+                                block.name, block.input, cwd=config.cwd
+                            )
+                            if formatted is not None:
+                                full_text.append(formatted)
+                                yield formatted
+                            else:
+                                # Suppressed variant — keep raw slug in full_text.
+                                full_text.append(f"{block.name}::{block.input!s}")
                         elif isinstance(block, ToolResultBlock):
+                            # Suppressed — keep raw slug in full_text for
+                            # COMPLETION_SIGNAL detection, but don't yield.
                             slug = f"{block.tool_use_id}::{block.content!s}"
                             full_text.append(slug)
-                            yield slug
                         elif isinstance(block, UserMessage):
                             slug = block.content
                             if isinstance(slug, list):

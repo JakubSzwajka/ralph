@@ -17,3 +17,4 @@ Owns filesystem scanning and frontmatter parsing. Does not render UI — the TUI
 ## Read Next
 
 - [Core](../core/README.md)
+- [TUI](../tui/README.md)
