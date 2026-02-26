@@ -57,9 +57,7 @@ class DiscordNotifier:
             )
             return
 
-        content = self.format_message(
-            iteration, summary, duration_s, is_complete
-        )
+        content = self.format_message(iteration, summary, duration_s, is_complete)
         payload: dict[str, Any] = {"content": content}
 
         try:

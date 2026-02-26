@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 
 CONFIG_PATH = Path.home() / ".ralph" / "config.json"
@@ -13,14 +14,11 @@ _KNOWN_KEYS: frozenset[str] = frozenset(
         "discord_webhook_url",
         "discord_min_interval",
         "prd_directory",
-        "langfuse_public_key",
-        "langfuse_secret_key",
-        "langfuse_base_url",
     }
 )
 
 
-def load_config() -> dict:
+def load_config() -> dict[str, Any]:
     """Read ~/.ralph/config.json and return the parsed dict.
 
     Returns an empty dict if the file does not exist (silently ignores missing
@@ -34,7 +32,7 @@ def load_config() -> dict:
 
     try:
         with CONFIG_PATH.open() as f:
-            raw: dict = json.load(f)
+            raw: dict[str, object] = json.load(f)
     except json.JSONDecodeError as exc:
         print(
             f"ralph: error: {CONFIG_PATH} contains invalid JSON — {exc}",

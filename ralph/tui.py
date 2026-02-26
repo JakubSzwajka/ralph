@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -15,19 +14,15 @@ from textual.widgets import (
     Button,
     Footer,
     Header,
-    Input,
-    ListItem,
-    ListView,
     Markdown,
     RichLog,
     Static,
     Tree,
 )
 
-from ralph.browser import DocDir, DocFile, scan_docs
+from ralph.browser import DocDir, scan_docs
 from ralph.browser.scanner import parse_frontmatter
 from ralph.core import IterationResult, RalphConfig, run_ralph
-from ralph.traces import RunSummary, list_runs
 
 
 class SelectionChanged(Message):
@@ -103,55 +98,6 @@ class DocTree(Tree[Path]):
             self.post_message(SelectionChanged(set(self.selected)))
 
 
-class RunSelected(Message):
-    def __init__(self, summary: RunSummary) -> None:
-        super().__init__()
-        self.summary = summary
-
-
-class RunHistoryList(ListView):
-    BINDINGS = [
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
-    ]
-
-    _STATUS_BADGES = {
-        "complete": "[green]●[/green]",
-        "running": "[yellow]●[/yellow]",
-        "error": "[red]●[/red]",
-        "unknown": "[dim]●[/dim]",
-    }
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._summaries: list[RunSummary] = []
-
-    def refresh_runs(self, summaries: list[RunSummary]) -> None:
-        self._summaries = summaries
-        self.clear()
-        for s in summaries:
-            badge = self._STATUS_BADGES.get(s.status, self._STATUS_BADGES["unknown"])
-            ts = s.started_at[:19].replace("T", " ")
-            progress = f"{s.iterations_completed}/{s.iterations_requested}"
-            dur = f"{s.total_duration_s:.1f}s"
-            label = f"{badge} {ts}  {progress}  {dur}"
-            self.append(ListItem(Static(label)))
-
-    @on(ListView.Highlighted)
-    def _on_highlighted(self, event: ListView.Highlighted) -> None:
-        if event.item is not None:
-            idx = self.index
-            if idx is not None and 0 <= idx < len(self._summaries):
-                self.post_message(RunSelected(self._summaries[idx]))
-
-    @on(ListView.Selected)
-    def _on_selected(self, event: ListView.Selected) -> None:
-        if event.item is not None:
-            idx = self.index
-            if idx is not None and 0 <= idx < len(self._summaries):
-                self.post_message(RunSelected(self._summaries[idx]))
-
-
 class ConfirmRunScreen(ModalScreen[bool]):
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
@@ -190,7 +136,7 @@ class ConfirmRunScreen(ModalScreen[bool]):
     }
     """
 
-    def __init__(self, config: "RalphConfig") -> None:
+    def __init__(self, config: RalphConfig) -> None:
         super().__init__()
         self._config = config
 
@@ -243,11 +189,6 @@ TCSS = """
 
 #doc-tree {
     width: 1fr;
-}
-
-#run-history {
-    width: 1fr;
-    display: none;
 }
 
 #detail-card {
@@ -330,7 +271,6 @@ class RalphApp(App[None]):
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
         Binding("r", "start_run", "Run", priority=True),
-        Binding("h", "toggle_history", "History", priority=True),
     ]
 
     def __init__(
@@ -350,7 +290,6 @@ class RalphApp(App[None]):
         with Horizontal(id="main"):
             with Vertical(id="collection-card"):
                 yield DocTree(doc_root, id="doc-tree")
-                yield RunHistoryList(id="run-history")
             with Vertical(id="detail-card"):
                 yield Static("", id="meta-header")
                 yield Static("Select a file to view its contents", id="content")
@@ -388,70 +327,6 @@ class RalphApp(App[None]):
         label = f"{count} file{'s' if count != 1 else ''} selected"
         self.query_one("#selection-count", Static).update(label)
 
-    @on(RunSelected)
-    def _on_run_selected(self, event: RunSelected) -> None:
-        s = event.summary
-        content_widget = self.query_one("#content", Static)
-        self.query_one("#md-content", Markdown).display = False
-        self.query_one("#meta-header", Static).display = False
-        self.query_one("#run-log", RichLog).display = False
-        content_widget.display = True
-        self.query_one("#detail-card").border_title = "Run Details"
-
-        status_colors = {
-            "complete": "green",
-            "running": "yellow",
-            "error": "red",
-        }
-        color = status_colors.get(s.status, "dim")
-        status_str = f"[{color}]{s.status}[/{color}]"
-
-        completed = s.completed_at or "[dim]—[/dim]"
-        duration = f"{s.total_duration_s:.1f}s"
-        model = s.model or "[dim]—[/dim]"
-        iters = f"{s.iterations_completed}/{s.iterations_requested}"
-
-        files_block = ""
-        if s.context_files:
-            files_list = "\n".join(f"  • {f}" for f in s.context_files)
-            files_block = f"\n\n[bold]Context Files:[/bold]\n{files_list}"
-
-        # Per-iteration table from iteration JSONL files
-        run_dir = self._root / ".ralph" / "runs" / s.run_id
-        iter_lines = ""
-        if run_dir.is_dir():
-            iter_files = sorted(run_dir.glob("iteration-*.jsonl"))
-            if iter_files:
-                rows = []
-                for f in iter_files:
-                    name = f.stem  # e.g. iteration-01
-                    try:
-                        num = int(name.split("-")[1])
-                    except (IndexError, ValueError):
-                        num = 0
-                    try:
-                        event_count = sum(1 for _ in f.open())
-                    except OSError:
-                        event_count = 0
-                    rows.append(f"  {num:>3}   {event_count:>6} events")
-                iter_lines = (
-                    "\n\n[bold]Iterations:[/bold]\n"
-                    "  [dim]  #   events[/dim]\n" + "\n".join(rows)
-                )
-
-        detail = (
-            f"[bold]Run ID:[/bold]      {s.run_id}\n"
-            f"[bold]Status:[/bold]      {status_str}\n"
-            f"[bold]Started:[/bold]     {s.started_at}\n"
-            f"[bold]Completed:[/bold]   {completed}\n"
-            f"[bold]Duration:[/bold]    {duration}\n"
-            f"[bold]Model:[/bold]       {model}\n"
-            f"[bold]Iterations:[/bold]  {iters}"
-            f"{files_block}"
-            f"{iter_lines}"
-        )
-        content_widget.update(detail)
-
     @on(FileHighlighted)
     def _on_file_highlighted(self, event: FileHighlighted) -> None:
         content_widget = self.query_one("#content", Static)
@@ -480,21 +355,6 @@ class RalphApp(App[None]):
             content_widget.display = True
             content_widget.update(text)
 
-    def action_toggle_history(self) -> None:
-        tree = self.query_one("#doc-tree", DocTree)
-        history = self.query_one("#run-history", RunHistoryList)
-        card = self.query_one("#collection-card")
-        if tree.display:
-            summaries = list_runs(self._root)
-            history.refresh_runs(summaries)
-            tree.display = False
-            history.display = True
-            card.border_title = "History"
-        else:
-            history.display = False
-            tree.display = True
-            card.border_title = "Files"
-
     def _switch_to_run_log(self) -> None:
         self.query_one("#content", Static).display = False
         self.query_one("#md-content", Markdown).display = False
@@ -517,7 +377,7 @@ class RalphApp(App[None]):
             cwd=self._root,
         )
 
-        self.push_screen(ConfirmRunScreen(config), callback=self._on_confirm_run)
+        self.push_screen(ConfirmRunScreen(config), callback=self._on_confirm_run)  # type: ignore[no-matching-overload]
         self._pending_config = config
 
     def _on_confirm_run(self, confirmed: bool) -> None:

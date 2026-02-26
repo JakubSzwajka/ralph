@@ -2,12 +2,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
-import re
 import sys
-from collections import Counter
-from datetime import datetime, timezone
 from pathlib import Path
 
 from rich.console import Console
@@ -91,270 +87,6 @@ def _build_status_table(
     return grid
 
 
-def _parse_jsonl_events(jsonl_path: Path) -> list[dict]:
-    """Read a JSONL file and return a list of parsed event dicts.
-
-    Lines that cannot be decoded as JSON are silently skipped.
-    """
-    events: list[dict] = []
-    try:
-        for line in jsonl_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line:
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
-    except OSError:
-        pass
-    return events
-
-
-def _print_iteration_text(run_dir: Path, iteration: int) -> int:
-    """Print the full concatenated text output of a specific iteration.
-
-    Returns 0 on success, 1 if the iteration file is missing.
-    """
-    jsonl_path = run_dir / f"iteration-{iteration:02d}.jsonl"
-    if not jsonl_path.exists():
-        console.print(
-            f"[red]Error:[/red] Iteration {iteration} not found in run directory."
-        )
-        return 1
-
-    events = _parse_jsonl_events(jsonl_path)
-    text_parts = [e.get("text", "") for e in events if e.get("type") == "text"]
-
-    if not text_parts:
-        console.print("[dim]No text output found for this iteration.[/dim]")
-        return 0
-
-    console.print(
-        Panel(
-            "".join(text_parts),
-            title=f"[dim]Iteration {iteration} output[/dim]",
-            border_style="dim",
-        )
-    )
-    return 0
-
-
-def _show_run_detail(runs_dir: Path, run_id: str, show_iteration: int | None) -> int:
-    """Show the detail view for a specific run identified by *run_id*.
-
-    Prints a Rich panel with config / meta info, then a table of all
-    iterations with event counts and key tool calls.  When *show_iteration*
-    is set, prints the full text output for that iteration instead.
-    """
-    run_dir = runs_dir / run_id
-    if not run_dir.exists():
-        console.print(f"[red]Error:[/red] Run not found: {run_id}")
-        return 1
-
-    meta_path = run_dir / "meta.json"
-    if not meta_path.exists():
-        console.print(f"[red]Error:[/red] meta.json not found for run: {run_id}")
-        return 1
-
-    try:
-        with meta_path.open("r", encoding="utf-8") as fh:
-            meta: dict = json.load(fh)
-    except (json.JSONDecodeError, OSError) as exc:
-        console.print(f"[red]Error:[/red] Could not read meta.json: {exc}")
-        return 1
-
-    # ------------------------------------------------------------------
-    # --iteration N: print text output for a single iteration and exit.
-    # ------------------------------------------------------------------
-    if show_iteration is not None:
-        return _print_iteration_text(run_dir, show_iteration)
-
-    # ------------------------------------------------------------------
-    # Config / meta panel
-    # ------------------------------------------------------------------
-    prd_path_str = meta.get("prd", "?")
-    prd_name = Path(prd_path_str).parent.name or Path(prd_path_str).name or "?"
-
-    dur_val = meta.get("total_duration_s")
-    dur_str = f"{dur_val:.1f}s" if dur_val is not None else "—"
-
-    status = meta.get("status", "in-progress")
-    status_styled = {
-        "complete": "[green]complete[/green]",
-        "max-iterations": "[yellow]max-iterations[/yellow]",
-        "error": "[red]error[/red]",
-    }.get(status, f"[dim]{status}[/dim]")
-
-    panel_lines = [
-        f"[bold]Run ID:[/bold]              {run_id}",
-        f"[bold]PRD:[/bold]                 {prd_path_str}  ([dim]{prd_name}[/dim])",
-        f"[bold]Tasks:[/bold]               {meta.get('tasks') or '—'}",
-        f"[bold]Model:[/bold]               {meta.get('model') or '—'}",
-        f"[bold]Permission mode:[/bold]     {meta.get('permission_mode') or '—'}",
-        f"[bold]Iterations requested:[/bold] {meta.get('iterations_requested', '—')}",
-        f"[bold]Iterations completed:[/bold] {meta.get('iterations_completed', '—')}",
-        f"[bold]Total duration:[/bold]      {dur_str}",
-        f"[bold]Status:[/bold]              {status_styled}",
-        f"[bold]Started:[/bold]             {meta.get('started_at', '—')}",
-        f"[bold]Completed:[/bold]           {meta.get('completed_at', '—')}",
-    ]
-    console.print(
-        Panel(
-            "\n".join(panel_lines),
-            title=f"[cyan]Run detail: {run_id}[/cyan]",
-            border_style="cyan",
-        )
-    )
-
-    # ------------------------------------------------------------------
-    # Iterations table built from JSONL files
-    # ------------------------------------------------------------------
-    iteration_files = sorted(run_dir.glob("iteration-*.jsonl"))
-    if not iteration_files:
-        console.print("[dim]No iteration files found.[/dim]")
-        return 0
-
-    table = Table(title="Iterations", show_header=True, show_lines=False)
-    table.add_column("#", style="bold", width=4)
-    table.add_column("Duration", justify="right", width=10)
-    table.add_column("Events", justify="right", width=8)
-    table.add_column("Tool calls")
-
-    for jsonl_path in iteration_files:
-        match = re.match(r"iteration-(\d+)\.jsonl", jsonl_path.name)
-        if not match:
-            continue
-        iter_num = int(match.group(1))
-
-        events = _parse_jsonl_events(jsonl_path)
-        event_count = len(events)
-
-        # Duration: difference between first and last event timestamps.
-        timestamps = [e.get("timestamp") for e in events if e.get("timestamp")]
-        if len(timestamps) >= 2:
-            try:
-                t0 = datetime.fromisoformat(timestamps[0])
-                t1 = datetime.fromisoformat(timestamps[-1])
-                duration_str = f"{(t1 - t0).total_seconds():.1f}s"
-            except ValueError:
-                duration_str = "—"
-        else:
-            duration_str = "—"
-
-        # Key tool calls: unique names with occurrence counts.
-        tool_names = [
-            e.get("name", "")
-            for e in events
-            if e.get("type") == "tool_use" and e.get("name")
-        ]
-        if tool_names:
-            counts = Counter(tool_names)
-            tool_str = ", ".join(
-                f"{name}×{cnt}" if cnt > 1 else name
-                for name, cnt in counts.most_common(5)
-            )
-        else:
-            tool_str = "—"
-
-        table.add_row(str(iter_num), duration_str, str(event_count), tool_str)
-
-    console.print(table)
-    return 0
-
-
-def _cmd_runs(argv: list[str] | None = None) -> int:
-    """Handle the ``ralph runs`` subcommand — list past runs from ``.ralph/runs/``."""
-    parser = argparse.ArgumentParser(
-        prog="ralph runs",
-        description="List past ralph runs from .ralph/runs/",
-    )
-    parser.add_argument(
-        "run_id",
-        nargs="?",
-        default=None,
-        help="Run ID (timestamp) to show detail for; omit to list all runs",
-    )
-    parser.add_argument(
-        "--cwd",
-        type=Path,
-        default=Path.cwd(),
-        help="Working directory to look for .ralph/runs/ (default: cwd)",
-    )
-    parser.add_argument(
-        "--iteration",
-        type=int,
-        default=None,
-        metavar="N",
-        help="Print full text output of iteration N (requires run_id)",
-    )
-    args = parser.parse_args(argv)
-
-    runs_dir = args.cwd / ".ralph" / "runs"
-
-    # Dispatch to the detail view when a specific run ID is given.
-    if args.run_id is not None:
-        return _show_run_detail(runs_dir, args.run_id, args.iteration)
-
-    if not runs_dir.exists():
-        console.print("[dim]No runs found. Run ralph to create run history.[/dim]")
-        return 0
-
-    # Collect run metadata from each subdirectory.
-    runs: list[dict] = []
-    for run_dir in runs_dir.iterdir():
-        if not run_dir.is_dir():
-            continue
-        meta_path = run_dir / "meta.json"
-        if not meta_path.exists():
-            continue
-        try:
-            with meta_path.open("r", encoding="utf-8") as fh:
-                meta = json.load(fh)
-            runs.append(meta)
-        except (json.JSONDecodeError, OSError):
-            continue
-
-    if not runs:
-        console.print("[dim]No runs found. Run ralph to create run history.[/dim]")
-        return 0
-
-    # Sort by run_id descending (most recent first — timestamps sort lexicographically).
-    runs.sort(key=lambda m: m.get("run_id", ""), reverse=True)
-
-    table = Table(title="Ralph Run History", show_header=True, show_lines=False)
-    table.add_column("Run ID", style="cyan", no_wrap=True)
-    table.add_column("PRD", style="bold")
-    table.add_column("Iterations", justify="right")
-    table.add_column("Duration", justify="right")
-    table.add_column("Status")
-
-    for meta in runs:
-        run_id = meta.get("run_id", "?")
-
-        # Derive a short PRD name: use the parent directory name for paths like
-        # "docs/prds/run-history/README.md", fall back to the filename itself.
-        prd_path_str = meta.get("prd", "")
-        prd_path = Path(prd_path_str)
-        prd_name = prd_path.parent.name or prd_path.name or "?"
-
-        iterations = str(meta.get("iterations_completed", "—"))
-
-        dur_val = meta.get("total_duration_s")
-        duration = f"{dur_val:.1f}s" if dur_val is not None else "—"
-
-        status = meta.get("status", "in-progress")
-        status_styled = {
-            "complete": "[green]complete[/green]",
-            "max-iterations": "[yellow]max-iterations[/yellow]",
-            "error": "[red]error[/red]",
-        }.get(status, f"[dim]{status}[/dim]")
-
-        table.add_row(run_id, prd_name, iterations, duration, status_styled)
-
-    console.print(table)
-    return 0
-
-
 def parse_args(
     argv: list[str] | None = None,
 ) -> tuple[RalphConfig, bool, Path | None, bool]:
@@ -376,7 +108,13 @@ def parse_args(
         prog="ralph",
         description="Autonomous coding agent loop powered by Claude",
     )
-    parser.add_argument("iterations", type=int, nargs="?", default=10, help="Number of iterations to run (default: 10)")
+    parser.add_argument(
+        "iterations",
+        type=int,
+        nargs="?",
+        default=10,
+        help="Number of iterations to run (default: 10)",
+    )
     parser.add_argument(
         "--prd",
         type=Path,
@@ -484,9 +222,6 @@ def parse_args(
             max_turns=args.max_turns,
             discord_webhook_url=discord_webhook_url,
             discord_min_interval=discord_min_interval,
-            langfuse_public_key=file_config.get("langfuse_public_key"),
-            langfuse_secret_key=file_config.get("langfuse_secret_key"),
-            langfuse_base_url=file_config.get("langfuse_base_url"),
         ),
         prd_explicit,
         prd_dir,
@@ -584,21 +319,17 @@ async def _run_headless(config: RalphConfig) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    # Dispatch ``ralph runs [...]`` before full argument parsing so the
-    # positional ``iterations`` argument is not required for that subcommand.
-    raw: list[str] = list(argv) if argv is not None else sys.argv[1:]
-    if raw and raw[0] == "runs":
-        return _cmd_runs(raw[1:])
-
     config, prd_explicit, prd_dir, no_tui_flag = parse_args(argv)
 
     # Auto-enable headless mode when stdout is not a TTY (piped output, CI, etc.)
     no_tui: bool = no_tui_flag or not sys.stdout.isatty()
 
     if no_tui:
-        # ── Headless mode ─────────────────────────────────────────────────
+        # -- Headless mode --
         if not prd_explicit:
-            console.print("[red]Error:[/red] --prd is required in headless mode (--no-tui or piped output)")
+            console.print(
+                "[red]Error:[/red] --prd is required in headless mode (--no-tui or piped output)"
+            )
             return 1
 
         if not config.prd.exists():
@@ -612,15 +343,12 @@ def main(argv: list[str] | None = None) -> int:
             return 130
 
     else:
-        # ── TUI mode (default) ─────────────────────────────────────────────
-        # Launch the persistent Textual app.  If --prd was supplied go
-        # straight to RunScreen; otherwise open the PRD browser screen.
+        # -- TUI mode (default) --
         from ralph.tui import RalphApp
 
         if prd_explicit and not config.prd.exists():
             console.print(f"[red]Error:[/red] PRD file not found: {config.prd}")
             return 1
 
-        tui_config = config if prd_explicit else config
-        RalphApp(tui_config, prd_dir=prd_dir).run()
+        RalphApp(config, prd_dir=prd_dir).run()
         return 0

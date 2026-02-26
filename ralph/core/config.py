@@ -21,13 +21,6 @@ class RalphConfig:
     discord_webhook_url: str | None = None
     discord_notify: bool = False
     discord_min_interval: float = 5.0
-    langfuse_public_key: str | None = None
-    langfuse_secret_key: str | None = None
-    langfuse_base_url: str | None = None
-
-    @property
-    def langfuse_enabled(self) -> bool:
-        return self.langfuse_public_key is not None and self.langfuse_secret_key is not None
 
     def __post_init__(self) -> None:
         if self.discord_webhook_url is not None and not self.discord_notify:

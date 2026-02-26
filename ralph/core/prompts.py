@@ -24,7 +24,7 @@ RULES:
 """
 
 
-def build_prompt(config: "RalphConfig") -> str:
+def build_prompt(config: RalphConfig) -> str:
     tasks_ref = f"@{config.tasks}" if config.tasks else ""
     return f"""\
 Your task is to implement the stories in the tasks list.

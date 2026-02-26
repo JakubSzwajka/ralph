@@ -1,65 +1,27 @@
 # ralph/core
 
-The autonomous agent loop. This is the only module that matters — everything else is UI and side-effects.
+The autonomous agent loop. Everything else (TUI, CLI, Discord) consumes this module.
 
-## How it works
+## Public API
 
-```
-PRD + Tasks → [iteration 1] → [iteration 2] → ... → [iteration N or COMPLETE]
-```
+- `RalphConfig` — all settings for a run (PRD path, iterations, model, permissions, discord)
+- `run_ralph(config)` — async generator yielding `(iteration, str | IterationResult)`
+- `run_iteration(config, iteration)` — single iteration, yields text chunks then `IterationResult`
+- `build_prompt(config)` — PRD-mode prompt with `@file` references
+- `build_prompt_from_files(context_files, iterations)` — TUI-mode prompt from selected files
+- `COMPLETION_SIGNAL` / `SYSTEM_PROMPT` — prompt constants
 
-1. **Input**: a PRD file and an optional tasks file (markdown with checkboxes)
-2. **Loop**: run up to N iterations, each sending the PRD + tasks to Claude via `claude-agent-sdk`
-3. **Per iteration**: Claude reads the PRD, picks the next undone task, implements it, runs tests, updates the task list
-4. **Exit conditions**: all tasks done (agent outputs `<promise>COMPLETE</promise>`) or max iterations reached
+## How It Works
 
-That's it. The agent is stateless between iterations — it re-reads the PRD and tasks each time, seeing its own prior file changes.
+1. PRD + optional tasks file → sent to Claude via `claude-agent-sdk`
+2. Each iteration: Claude picks next undone task, implements it, runs tests, updates task list
+3. Exits on `<promise>COMPLETE</promise>` or max iterations reached
+4. Agent is stateless between iterations — re-reads files each time
 
-## Module layout
+## Responsibility Boundary
 
-| File | Purpose |
-|---|---|
-| `config.py` | `RalphConfig` dataclass — all settings for a run |
-| `prompts.py` | System prompt, completion signal, prompt builder |
-| `loop.py` | `run_iteration()` and `run_ralph()` — the actual loop |
+Owns the agent loop and prompt construction. Does not own UI rendering or notifications — callers consume the async generator.
 
-## RalphConfig
+## Read Next
 
-```python
-RalphConfig(
-    prd=Path("docs/prds/my-feature"),
-    tasks=Path("docs/prds/my-feature/tasks.md"),
-    iterations=10,
-    cwd=Path.cwd(),
-    permission_mode="bypassPermissions",
-    model=None,          # uses SDK default
-    max_turns=None,      # uses SDK default
-)
-```
-
-## Standalone usage
-
-```python
-import asyncio
-from ralph.core import RalphConfig, run_ralph, IterationResult
-
-async def main():
-    config = RalphConfig(prd=Path("PRD.md"), iterations=5)
-    async for iteration, item in run_ralph(config):
-        if isinstance(item, IterationResult):
-            print(f"Iteration {item.iteration}: complete={item.is_complete}")
-        else:
-            print(item, end="")
-
-asyncio.run(main())
-```
-
-## Prompt design
-
-The system prompt constrains the agent to:
-- Work on **one task per iteration**
-- Make its own decisions (no user in the loop)
-- Never commit unless told to
-- Signal completion when done
-
-The user prompt points at the PRD and tasks files using `@file` references so the SDK resolves them as context.
+- [Browser](../browser/README.md)
