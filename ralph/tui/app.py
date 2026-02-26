@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from dataclasses import replace
@@ -17,7 +16,7 @@ from ralph.browser import scan_docs
 from ralph.browser.scanner import parse_frontmatter
 from ralph.core import RalphConfig
 from ralph.worker import serialize_config
-from ralph.core.run_meta import RunMeta, RunStatus, default_runs_dir
+from ralph.core.run_meta import RunMeta, RunStatus, cleanup_stale_runs, default_runs_dir
 
 from .screens import ConfirmQuitScreen, ConfirmRunScreen, RunBrowserScreen
 from .widgets import DocTree, FileHighlighted, SelectionChanged
@@ -158,18 +157,7 @@ class RalphApp(App[None]):
         self._cleanup_orphaned_runs()
 
     def _cleanup_orphaned_runs(self) -> None:
-        for run in RunMeta.list_runs(default_runs_dir()):
-            if run.status != RunStatus.RUNNING:
-                continue
-            alive = False
-            if run.pid is not None:
-                try:
-                    os.kill(run.pid, 0)
-                    alive = True
-                except OSError:
-                    pass
-            if not alive:
-                run.update(default_runs_dir(), status=RunStatus.ERROR)
+        cleanup_stale_runs(default_runs_dir())
 
     def _format_meta_header(self, meta: dict[str, str]) -> str:
         if not meta:

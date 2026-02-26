@@ -35,6 +35,7 @@ class IterationResult:
 async def run_iteration(
     config: RalphConfig,
     iteration: int,
+    session_id: str | None = None,
 ) -> AsyncIterator[str | IterationResult]:
     """Run a single Ralph iteration. Yields text chunks, then a final IterationResult."""
     start = time.monotonic()
@@ -56,7 +57,7 @@ async def run_iteration(
     client = ClaudeSDKClient(options=options)
     try:
         await client.connect()
-        await client.query(prompt)
+        await client.query(prompt, session_id=session_id or "default")
         async for message in client.receive_messages():
             match message:
                 case msg if hasattr(msg, "content") and hasattr(msg, "model"):
@@ -110,11 +111,12 @@ async def run_iteration(
 
 async def run_ralph(
     config: RalphConfig,
+    session_id: str | None = None,
 ) -> AsyncIterator[tuple[int, str | IterationResult]]:
     """Run the full Ralph loop. Yields (iteration, text_chunk | IterationResult)."""
     results: list[IterationResult] = []
     for i in range(1, config.iterations + 1):
-        async for item in run_iteration(config, i):
+        async for item in run_iteration(config, i, session_id=session_id):
             yield (i, item)
             if isinstance(item, IterationResult):
                 results.append(item)

@@ -6,6 +6,7 @@ import os
 import signal
 import sys
 import time
+import uuid
 from datetime import datetime, UTC
 from pathlib import Path
 
@@ -64,6 +65,8 @@ async def worker_main(config_path: str) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "w")
 
+    session_id = uuid.uuid4().hex
+
     meta = RunMeta(
         run_id=run_id,
         pid=os.getpid(),
@@ -74,6 +77,7 @@ async def worker_main(config_path: str) -> None:
         iterations_requested=config.iterations,
         model=config.model,
         permission_mode=str(config.permission_mode),
+        session_id=session_id,
         context_files=[str(p) for p in config.context_files],
     )
     meta.write(runs_dir)
@@ -88,7 +92,7 @@ async def worker_main(config_path: str) -> None:
 
     start = time.monotonic()
     try:
-        async for _iteration, item in run_ralph(config):
+        async for _iteration, item in run_ralph(config, session_id=session_id):
             if isinstance(item, str):
                 log_file.write(item)
                 log_file.flush()

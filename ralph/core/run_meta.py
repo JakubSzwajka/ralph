@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from enum import StrEnum
@@ -28,6 +30,7 @@ class RunMeta:
     total_duration_s: float = 0.0
     model: str | None = None
     permission_mode: str = "bypassPermissions"
+    session_id: str | None = None
     context_files: list[str] = field(default_factory=list)
 
     def _to_dict(self) -> dict:
@@ -44,6 +47,7 @@ class RunMeta:
             "total_duration_s": self.total_duration_s,
             "model": self.model,
             "permission_mode": self.permission_mode,
+            "session_id": self.session_id,
             "context_files": self.context_files,
         }
 
@@ -74,6 +78,7 @@ class RunMeta:
             total_duration_s=data.get("total_duration_s", 0.0),
             model=data.get("model"),
             permission_mode=data.get("permission_mode", "bypassPermissions"),
+            session_id=data.get("session_id"),
             context_files=data.get("context_files", []),
         )
 
@@ -97,3 +102,36 @@ def generate_run_id() -> str:
 
 def default_runs_dir() -> Path:
     return Path.cwd() / ".ralph" / "runs"
+
+
+COMPLETION_SIGNAL = "<promise>COMPLETE</promise>"
+
+
+def cleanup_stale_runs(runs_dir: Path) -> None:
+    for run in RunMeta.list_runs(runs_dir):
+        if run.status != RunStatus.RUNNING:
+            continue
+        pid_alive = False
+        if run.pid is not None:
+            try:
+                os.kill(run.pid, 0)
+                pid_alive = True
+            except OSError:
+                pass
+
+        log_path = runs_dir / run.run_id / "output.log"
+        log_has_complete = False
+        try:
+            if log_path.is_file():
+                log_has_complete = COMPLETION_SIGNAL in log_path.read_text(
+                    errors="replace"
+                )
+        except Exception:
+            pass
+
+        if log_has_complete:
+            run.update(runs_dir, status=RunStatus.DONE)
+            if pid_alive and run.pid is not None:
+                os.kill(run.pid, signal.SIGTERM)
+        elif not pid_alive:
+            run.update(runs_dir, status=RunStatus.ERROR)
