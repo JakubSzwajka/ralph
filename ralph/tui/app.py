@@ -1,20 +1,25 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from textual import on, work
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, Markdown, RichLog, Static
+from textual.widgets import Footer, Header, Markdown, Static
 
 from ralph.browser import scan_docs
 from ralph.browser.scanner import parse_frontmatter
-from ralph.core import IterationResult, RalphConfig, run_ralph
+from ralph.core import RalphConfig
+from ralph.worker import serialize_config
+from ralph.core.run_meta import RunMeta, RunStatus, default_runs_dir
 
-from .screens import ConfirmRunScreen
+from .screens import ConfirmRunScreen, RunBrowserScreen
 from .widgets import DocTree, FileHighlighted, SelectionChanged
 
 TCSS = """
@@ -101,11 +106,6 @@ TCSS = """
     padding: 0 2;
     color: $text-muted;
 }
-
-#run-log {
-    width: 1fr;
-    padding: 1 2;
-}
 """
 
 
@@ -116,6 +116,7 @@ class RalphApp(App[None]):
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
         Binding("r", "start_run", "Run", priority=True),
+        Binding("h", "show_runs", "History"),
     ]
 
     def __init__(
@@ -139,7 +140,6 @@ class RalphApp(App[None]):
                 yield Static("", id="meta-header")
                 yield Static("Select a file to view its contents", id="content")
                 yield Markdown("", id="md-content")
-                yield RichLog(id="run-log", wrap=True, markup=True)
         with Horizontal(id="run-bar"):
             with Horizontal(id="run-bar-inner"):
                 yield Static("0 files selected", id="selection-count")
@@ -155,7 +155,21 @@ class RalphApp(App[None]):
         self.query_one("#run-bar").border_title = "Run"
         self.query_one("#meta-header").display = False
         self.query_one("#md-content").display = False
-        self.query_one("#run-log").display = False
+        self._cleanup_orphaned_runs()
+
+    def _cleanup_orphaned_runs(self) -> None:
+        for run in RunMeta.list_runs(default_runs_dir()):
+            if run.status != RunStatus.RUNNING:
+                continue
+            alive = False
+            if run.pid is not None:
+                try:
+                    os.kill(run.pid, 0)
+                    alive = True
+                except OSError:
+                    pass
+            if not alive:
+                run.update(default_runs_dir(), status=RunStatus.ERROR)
 
     def _format_meta_header(self, meta: dict[str, str]) -> str:
         if not meta:
@@ -177,9 +191,6 @@ class RalphApp(App[None]):
         content_widget = self.query_one("#content", Static)
         md_widget = self.query_one("#md-content", Markdown)
         meta_widget = self.query_one("#meta-header", Static)
-        run_log = self.query_one("#run-log", RichLog)
-
-        run_log.display = False
 
         try:
             text = event.path.read_text(encoding="utf-8")
@@ -200,13 +211,8 @@ class RalphApp(App[None]):
             content_widget.display = True
             content_widget.update(text)
 
-    def _switch_to_run_log(self) -> None:
-        self.query_one("#content", Static).display = False
-        self.query_one("#md-content", Markdown).display = False
-        self.query_one("#meta-header", Static).display = False
-        run_log = self.query_one("#run-log", RichLog)
-        run_log.clear()
-        run_log.display = True
+    def action_show_runs(self) -> None:
+        self.push_screen(RunBrowserScreen())
 
     def action_start_run(self) -> None:
         tree = self.query_one("#doc-tree", DocTree)
@@ -228,44 +234,20 @@ class RalphApp(App[None]):
     def _on_confirm_run(self, confirmed: bool) -> None:
         if not confirmed:
             return
-        config = self._pending_config
-        self._switch_to_run_log()
-        self.query_one("#detail-card").border_title = "Run Output"
-        self._execute_run(config)
+        self._launch_worker(self._pending_config)
 
-    @work(exclusive=True)
-    async def _execute_run(self, config: RalphConfig) -> None:
-        run_log = self.query_one("#run-log", RichLog)
-        run_log.write(
-            f"[bold magenta]Starting ralph[/bold magenta] — {len(config.context_files)} files, {config.iterations} iterations"
+    def _launch_worker(self, config: RalphConfig) -> None:
+        config_path = serialize_config(config)
+
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "ralph.worker", config_path],
+            start_new_session=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
         )
-        run_log.write("")
 
-        try:
-            async for iteration, item in run_ralph(config):
-                if isinstance(item, str):
-                    for line in item.splitlines():
-                        stripped = line.strip()
-                        if stripped:
-                            run_log.write(stripped)
-                elif isinstance(item, IterationResult):
-                    self.query_one("#run-hint", Static).update(
-                        f"Running: {item.iteration}/{config.iterations} iterations"
-                    )
-                    status = (
-                        "[green]COMPLETE[/green]"
-                        if item.is_complete
-                        else "[blue]done[/blue]"
-                    )
-                    run_log.write(
-                        f"\n[bold]Iteration {item.iteration}[/bold] — {item.duration_s:.1f}s — {status}"
-                    )
-                    run_log.write("")
-                    if item.is_complete:
-                        break
-        except Exception as exc:
-            run_log.write(f"\n[red]Error: {exc}[/red]")
-        finally:
-            run_log.write("\n[dim]Run finished.[/dim]")
-            self.query_one("#detail-card").border_title = "Details"
-            self.query_one("#run-hint", Static).update("[bold]r[/bold] to run")
+        run_id = proc.stdout.readline().decode().strip()  # type: ignore[union-attr]
+        proc.stdout.close()  # type: ignore[union-attr]
+
+        self.notify(f"Run {run_id} started")
+        self.query_one("#run-hint", Static).update(f"Launched [bold]{run_id}[/bold]")
