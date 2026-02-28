@@ -82,6 +82,18 @@ async def execute_run(
     log_file = open(log_path, "w")
 
     context_files = list(config.context_files) if config.context_files else []
+
+    # Auto-create and inject notebook.md as a sibling of the PRD.
+    notebook = config.prd.parent / "notebook.md"
+    if not notebook.exists():
+        notebook.write_text(
+            "# Notebook\n\n"
+            "Shared scratchpad for agents working on this PRD. "
+            "Read before starting a task. Append notes as you go.\n\n---\n"
+        )
+    if notebook not in context_files:
+        context_files.insert(0, notebook)
+
     meta = RunMeta.create_new(
         run_id, config, config.iterations, context_files
     )
