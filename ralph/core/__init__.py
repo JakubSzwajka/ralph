@@ -9,19 +9,15 @@ from ralph.core.run_meta import RunMeta, RunStatus, default_runs_dir, generate_r
 from ralph.core.loop import IterationResult, run_iteration, run_ralph
 from ralph.core.prompts import (
     COMPLETION_SIGNAL,
-    SYSTEM_PROMPT,
-    build_prompt,
     build_prompt_from_files,
 )
 
 __all__ = [
     "COMPLETION_SIGNAL",
-    "SYSTEM_PROMPT",
     "IterationResult",
     "RalphConfig",
     "RunMeta",
     "RunStatus",
-    "build_prompt",
     "build_prompt_from_files",
     "default_runs_dir",
     "generate_run_id",
