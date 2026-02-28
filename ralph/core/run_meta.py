@@ -30,7 +30,6 @@ class RunMeta:
     total_duration_s: float = 0.0
     model: str | None = None
     permission_mode: str = "bypassPermissions"
-    session_id: str | None = None
     context_files: list[str] = field(default_factory=list)
 
     def _to_dict(self) -> dict:
@@ -47,7 +46,6 @@ class RunMeta:
             "total_duration_s": self.total_duration_s,
             "model": self.model,
             "permission_mode": self.permission_mode,
-            "session_id": self.session_id,
             "context_files": self.context_files,
         }
 
@@ -61,6 +59,28 @@ class RunMeta:
         for k, v in fields.items():
             setattr(self, k, v)
         self.write(runs_dir)
+
+    @classmethod
+    def create_new(
+        cls,
+        run_id: str,
+        config: "RalphConfig",
+        iterations: int,
+        context_files: list[Path],
+    ) -> RunMeta:
+        from ralph.core import RalphConfig  # noqa: F811 — deferred to avoid circular import
+        return cls(
+            run_id=run_id,
+            pid=os.getpid(),
+            started_at=datetime.now(UTC).isoformat(),
+            status=RunStatus.RUNNING,
+            prd=str(config.prd),
+            tasks=str(config.tasks) if config.tasks else None,
+            iterations_requested=iterations,
+            model=config.model,
+            permission_mode=str(config.permission_mode),
+            context_files=[str(p) for p in context_files],
+        )
 
     @staticmethod
     def read(path: Path) -> RunMeta:
@@ -78,7 +98,6 @@ class RunMeta:
             total_duration_s=data.get("total_duration_s", 0.0),
             model=data.get("model"),
             permission_mode=data.get("permission_mode", "bypassPermissions"),
-            session_id=data.get("session_id"),
             context_files=data.get("context_files", []),
         )
 

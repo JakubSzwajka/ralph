@@ -102,16 +102,3 @@ def _scan_directory(directory: Path, base: Path) -> DocDir:
     return DocDir(name=directory.name, path=directory, children=children)
 
 
-def scan_docs_flat(root: Path, docs_dir: Path | None = None) -> list[DocFile]:
-    tree = scan_docs(root, docs_dir)
-    result: list[DocFile] = []
-    _flatten(tree, result)
-    return result
-
-
-def _flatten(node: DocDir, acc: list[DocFile]) -> None:
-    for child in node.children:
-        if isinstance(child, DocFile):
-            acc.append(child)
-        else:
-            _flatten(child, acc)

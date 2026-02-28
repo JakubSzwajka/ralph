@@ -3,7 +3,6 @@ from ralph.browser.scanner import (
     DocFile,
     parse_frontmatter,
     scan_docs,
-    scan_docs_flat,
 )
 
 __all__ = [
@@ -11,5 +10,4 @@ __all__ = [
     "DocFile",
     "parse_frontmatter",
     "scan_docs",
-    "scan_docs_flat",
 ]

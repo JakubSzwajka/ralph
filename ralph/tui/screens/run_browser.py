@@ -33,6 +33,46 @@ def _fmt_duration(seconds: float) -> str:
     return f"{s // 60}m {s % 60}s"
 
 
+def _format_detail(run: RunMeta) -> str:
+    badge = _STATUS_BADGE.get(run.status, str(run.status))
+    pid_part = f"  [bold]PID:[/bold] {run.pid}" if run.pid else ""
+    lines = [
+        f"[bold]Run ID:[/bold] {run.run_id}{pid_part}",
+        f"[bold]Status:[/bold] {badge} {run.status}",
+        f"[bold]Started:[/bold] {run.started_at or '—'}",
+        f"[bold]Completed:[/bold] {run.completed_at or '—'}",
+        "",
+        f"[bold]Model:[/bold] {run.model or '—'}",
+        f"[bold]Permission mode:[/bold] {run.permission_mode}",
+        f"[bold]PRD:[/bold] {run.prd}",
+        f"[bold]Tasks:[/bold] {run.tasks or '—'}",
+        "",
+        f"[bold]Iterations:[/bold] {run.iterations_completed}/{run.iterations_requested}",
+        f"[bold]Duration:[/bold] {_fmt_duration(run.total_duration_s)}",
+    ]
+    if run.context_files:
+        lines.append("")
+        lines.append(f"[bold]Context files:[/bold] ({len(run.context_files)})")
+        for f in run.context_files:
+            p = Path(f)
+            lines.append(f"  {p.name} [dim]{p.parent}[/dim]")
+    else:
+        lines.append("")
+        lines.append("[bold]Context files:[/bold] —")
+    return "\n".join(lines)
+
+
+def _read_log(run: RunMeta) -> str:
+    try:
+        log_path = default_runs_dir() / run.run_id / "output.log"
+        if log_path.is_file():
+            text = log_path.read_text(errors="replace")
+            return f"[dim]{text}[/dim]" if text.strip() else "[dim]Empty[/dim]"
+        return "[dim]No output log[/dim]"
+    except Exception:
+        return "[dim]Could not read log[/dim]"
+
+
 class RunBrowserScreen(Screen[None]):
     BINDINGS = [
         Binding("escape", "go_back", "Back", priority=True),
@@ -164,50 +204,8 @@ class RunBrowserScreen(Screen[None]):
                 self._update_detail(run)
 
     def _update_detail(self, run: RunMeta) -> None:
-        detail = self.query_one("#run-detail", Static)
-        badge = _STATUS_BADGE.get(run.status, str(run.status))
-
-        pid_part = f"  [bold]PID:[/bold] {run.pid}" if run.pid else ""
-        lines = [
-            f"[bold]Run ID:[/bold] {run.run_id}{pid_part}",
-            f"[bold]Status:[/bold] {badge} {run.status}",
-            f"[bold]Started:[/bold] {run.started_at or '—'}",
-            f"[bold]Completed:[/bold] {run.completed_at or '—'}",
-            "",
-            f"[bold]Model:[/bold] {run.model or '—'}",
-            f"[bold]Permission mode:[/bold] {run.permission_mode}",
-            f"[bold]PRD:[/bold] {run.prd}",
-            f"[bold]Tasks:[/bold] {run.tasks or '—'}",
-            f"[bold]Session:[/bold] [dim]{run.session_id or '—'}[/dim]",
-            "",
-            f"[bold]Iterations:[/bold] {run.iterations_completed}/{run.iterations_requested}",
-            f"[bold]Duration:[/bold] {_fmt_duration(run.total_duration_s)}",
-        ]
-
-        if run.context_files:
-            lines.append("")
-            lines.append(f"[bold]Context files:[/bold] ({len(run.context_files)})")
-            for f in run.context_files:
-                p = Path(f)
-                lines.append(f"  {p.name} [dim]{p.parent}[/dim]")
-        else:
-            lines.append("")
-            lines.append("[bold]Context files:[/bold] —")
-
-        detail.update("\n".join(lines))
-
-        log_widget = self.query_one("#run-log", Static)
-        try:
-            log_path = default_runs_dir() / run.run_id / "output.log"
-            if log_path.is_file():
-                text = log_path.read_text(errors="replace")
-                log_widget.update(
-                    f"[dim]{text}[/dim]" if text.strip() else "[dim]Empty[/dim]"
-                )
-            else:
-                log_widget.update("[dim]No output log[/dim]")
-        except Exception:
-            log_widget.update("[dim]Could not read log[/dim]")
+        self.query_one("#run-detail", Static).update(_format_detail(run))
+        self.query_one("#run-log", Static).update(_read_log(run))
 
     def action_go_back(self) -> None:
         self.app.pop_screen()
