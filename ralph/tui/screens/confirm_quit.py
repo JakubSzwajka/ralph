@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
+
+ButtonVariant = Literal["default", "primary", "success", "warning", "error"]
 
 
 class ConfirmationScreen(ModalScreen[bool]):
@@ -53,7 +57,7 @@ class ConfirmationScreen(ModalScreen[bool]):
         body: str,
         title: str = "Confirm",
         confirm_label: str = "OK",
-        confirm_variant: str = "success",
+        confirm_variant: ButtonVariant = "success",
         focus_confirm: bool = False,
     ) -> None:
         super().__init__()
@@ -98,8 +102,7 @@ class ConfirmQuitScreen(ConfirmationScreen):
     def __init__(self, active_runs: int = 0) -> None:
         if active_runs > 0:
             body = (
-                f"You have {active_runs} active run(s). "
-                "Are you sure you want to quit?"
+                f"You have {active_runs} active run(s). Are you sure you want to quit?"
             )
         else:
             body = "Are you sure you want to quit?"

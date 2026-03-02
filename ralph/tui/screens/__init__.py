@@ -6,9 +6,9 @@ from ralph.tui.screens.run_screen import RunScreen
 
 __all__ = [
     "BrowserScreen",
-    "ConfirmationScreen",
     "ConfirmQuitScreen",
     "ConfirmRunScreen",
+    "ConfirmationScreen",
     "RunBrowserScreen",
     "RunScreen",
 ]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from collections.abc import AsyncIterator
+from typing import Protocol, cast
 
 from claude_agent_sdk import (
     query,
@@ -21,6 +22,10 @@ from ralph.core.prompts import (
     COMPLETION_SIGNAL,
     build_prompt_from_files,
 )
+
+
+class _SupportsAclose(Protocol):
+    async def aclose(self) -> None: ...
 
 
 @dataclass
@@ -96,10 +101,11 @@ async def run_iteration(
                 case _:
                     pass
     finally:
-        try:
-            await stream.aclose()
-        except (RuntimeError, GeneratorExit):
-            pass  # anyio cancel-scope cleanup race on early break
+        if hasattr(stream, "aclose"):
+            try:
+                await cast(_SupportsAclose, stream).aclose()
+            except (RuntimeError, GeneratorExit):
+                pass  # anyio cancel-scope cleanup race on early break
 
     combined = "\n".join(full_text)
     elapsed = time.monotonic() - start

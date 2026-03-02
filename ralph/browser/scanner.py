@@ -100,5 +100,3 @@ def _scan_directory(directory: Path, base: Path) -> DocDir:
             children.append(DocFile(path=entry, relative_path=rel))
 
     return DocDir(name=directory.name, path=directory, children=children)
-
-

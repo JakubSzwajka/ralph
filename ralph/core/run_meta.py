@@ -7,6 +7,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ralph.core.config import RalphConfig
 
 
 class RunStatus(StrEnum):
@@ -64,11 +68,10 @@ class RunMeta:
     def create_new(
         cls,
         run_id: str,
-        config: "RalphConfig",
+        config: RalphConfig,
         iterations: int,
         context_files: list[Path],
     ) -> RunMeta:
-        from ralph.core import RalphConfig  # noqa: F811 — deferred to avoid circular import
         return cls(
             run_id=run_id,
             pid=os.getpid(),

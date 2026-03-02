@@ -11,7 +11,6 @@ import time
 import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path
 
 from ralph.core.config import RalphConfig
 from ralph.core.loop import IterationResult, run_ralph
@@ -35,7 +34,7 @@ def format_separator(result: IterationResult) -> str:
 
 
 class RunResult:
-    __slots__ = ("status", "iterations_completed", "elapsed_s", "error")
+    __slots__ = ("elapsed_s", "error", "iterations_completed", "status")
 
     def __init__(
         self,
@@ -94,9 +93,7 @@ async def execute_run(
     if notebook not in context_files:
         context_files.insert(0, notebook)
 
-    meta = RunMeta.create_new(
-        run_id, config, config.iterations, context_files
-    )
+    meta = RunMeta.create_new(run_id, config, config.iterations, context_files)
     meta.write(runs_dir)
 
     start = time.monotonic()

@@ -107,14 +107,14 @@ class BrowserScreen(Screen[None]):
             for r in RunMeta.list_runs(default_runs_dir())
             if r.status == RunStatus.RUNNING
         )
-        self.push_screen(ConfirmQuitScreen(active), callback=self._on_confirm_quit)  # type: ignore[no-matching-overload]
+        self.app.push_screen(ConfirmQuitScreen(active), callback=self._on_confirm_quit)  # type: ignore[no-matching-overload]
 
     def _on_confirm_quit(self, confirmed: bool) -> None:
         if confirmed:
             self.app.exit()
 
     def action_show_runs(self) -> None:
-        self.push_screen(RunBrowserScreen())
+        self.app.push_screen(RunBrowserScreen())
 
     def action_start_run(self) -> None:
         if self._run_active:
@@ -134,7 +134,7 @@ class BrowserScreen(Screen[None]):
             cwd=self._root,
         )
 
-        self.push_screen(ConfirmRunScreen(config), callback=self._on_confirm_run)  # type: ignore[no-matching-overload]
+        self.app.push_screen(ConfirmRunScreen(config), callback=self._on_confirm_run)  # type: ignore[no-matching-overload]
         self._pending_config = config
 
     def _on_confirm_run(self, confirmed: bool) -> None:
@@ -150,7 +150,7 @@ class BrowserScreen(Screen[None]):
         )
         self._run_active = True
         self._update_run_hint()
-        self.push_screen(screen, callback=self._on_run_screen_popped)  # type: ignore[no-matching-overload]
+        self.app.push_screen(screen, callback=self._on_run_screen_popped)  # type: ignore[no-matching-overload]
 
     def _on_run_screen_popped(self) -> None:
         self._run_active = False

@@ -14,7 +14,6 @@ from textual.widgets import RichLog, Static
 from ralph.core import RalphConfig
 from ralph.core.executor import execute_run
 from ralph.core.loop import IterationResult
-from ralph.core.run_meta import RunStatus
 
 
 class RunScreen(Screen[None]):
