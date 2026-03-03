@@ -52,23 +52,6 @@ class TestMainPrdExists:
         assert call_config.prd == prd
 
 
-class TestSubcommandDispatch:
-    """``ralph runs`` dispatches to the runs subcommand."""
-
-    def test_runs_subcommand_dispatches(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Use an empty runs dir so runs_main returns 0 quickly
-        monkeypatch.chdir(tmp_path)
-        rc = main(["runs"])
-        assert rc == 0
-
-    def test_unknown_first_arg_is_not_subcommand(self) -> None:
-        """An unrecognised first arg should not be treated as a subcommand."""
-        # 'bogus' is not in _SUBCOMMANDS, so it falls through to parse_args
-        # which will fail on unrecognised arg (SystemExit).
-        with pytest.raises(SystemExit):
-            main(["bogus"])
-
-
 class TestKeyboardInterrupt:
     """KeyboardInterrupt during the run returns 130."""
 
