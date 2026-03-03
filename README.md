@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/)
 
-Autonomous coding agent that implements tasks from PRDs. Powered by Claude, runs in a terminal TUI.
+Autonomous coding agent that implements tasks from PRDs. Powered by Claude, runs in your terminal.
 
 Ralph reads a Product Requirements Document, picks the highest-priority task, implements it, and repeats — hands-free.
 
@@ -36,8 +36,7 @@ Optional config at `~/.ralph/config.json`:
 
 ```json
 {
-  "discord_webhook_url": "https://discord.com/api/webhooks/...",
-  "prd_directory": "docs/prds"
+  "discord_webhook_url": "https://discord.com/api/webhooks/..."
 }
 ```
 
@@ -46,28 +45,24 @@ Or set `RALPH_DISCORD_WEBHOOK` env var for Discord notifications.
 ## Usage
 
 ```bash
-# Launch TUI — browse PRDs, pick one, and run
-ralph --max-turns 5
+# Run with one PRD file
+ralph --max-turns 10 --prd docs/prds/my-feature/PRD.md
 
-# Run headless with one PRD file
-ralph --max-turns 10 --no-tui --prd docs/prds/my-feature/PRD.md
+# Run with one PRD directory (auto-picks README.md/PRD.md)
+ralph --max-turns 10 --prd docs/prds/my-feature
 
-# Run headless with multiple PRD files (explicit list)
-ralph --max-turns 10 --no-tui --prd docs/prds/a/PRD.md docs/prds/b/PRD.md
+# Run with multiple PRD files (explicit list)
+ralph --max-turns 10 --prd docs/prds/a/PRD.md docs/prds/b/PRD.md
 
-# Run headless with wildcard(s)
-ralph --max-turns 10 --no-tui --prd "docs/prds/*/PRD.md"
-
-# View past runs
-ralph runs
+# Run with wildcard(s)
+ralph --max-turns 10 --prd "docs/prds/*/PRD.md"
 ```
 
 ## Features
 
 - **Autonomous agent loop** — runs N iterations, each picking and implementing the next task
-- **Textual TUI** — PRD browser, live streaming output, task progress panel, iteration sidebar
-- **PRD management** — browse, preview, delete PRDs; import GitHub issues as PRDs
-- **Run history** — persisted JSONL event logs with metadata, browsable from TUI or CLI
+- **Rich CLI output** — live streaming output with task progress and iteration details
+- **Run history files** — persisted logs and metadata under `.ralph/runs`
 - **Discord notifications** — webhook alerts after each iteration with status and summary
 - **Early exit** — agent signals completion when all tasks are done, no wasted iterations
 
@@ -75,17 +70,16 @@ ralph runs
 
 | Flag | Description |
 |---|---|
-| `--prd PATH [PATH ...]` | PRD file path(s); supports wildcard patterns |
+| `--prd PATH [PATH ...]` | PRD file(s), PRD directory(s), or wildcard patterns |
 | `--tasks PATH` | Task list markdown file |
 | `--cwd PATH` | Working directory for the agent |
 | `--max-turns N` | Max Ralph loop iterations |
 | `--permission-mode` | `default`, `acceptEdits`, `plan`, `bypassPermissions` |
 | `--model` | Claude model to use |
-| `--no-tui` | Headless mode (Rich output) |
 
 ## Stack
 
-Python · [Claude Agent SDK](https://github.com/anthropics/agent-sdk) · Textual · Rich · httpx
+Python · [Claude Agent SDK](https://github.com/anthropics/agent-sdk) · Rich · httpx
 
 ## Contributing
 

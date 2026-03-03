@@ -1,3 +1,9 @@
+"""CLI runner — the single execution path for the ralph agent loop.
+
+Streams agent output to stdout with Rich formatting and returns a
+POSIX-style exit code.
+"""
+
 from __future__ import annotations
 
 from rich.console import Console
@@ -10,7 +16,7 @@ from ralph.core.run_meta import RunStatus
 console = Console()
 
 
-async def _run_headless(config: RalphConfig) -> int:
+async def _run_cli(config: RalphConfig) -> int:
     prompt_files = (
         list(config.context_files)
         if config.context_files

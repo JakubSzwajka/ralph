@@ -13,7 +13,6 @@ _KNOWN_KEYS: frozenset[str] = frozenset(
     {
         "discord_webhook_url",
         "discord_min_interval",
-        "prd_directory",
     }
 )
 

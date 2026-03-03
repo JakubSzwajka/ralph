@@ -1,24 +1,25 @@
 # ralph/cli
 
-CLI entry point and headless runner. Parses arguments, resolves config, and dispatches to TUI or headless mode.
+CLI entry point and runner. Parses arguments, resolves config, and runs the agent loop.
 
 ## Public API
 
-- `main(argv?)` — entry point: parses args, runs TUI or headless depending on flags/TTY
-- `parse_args(argv?)` — returns `(RalphConfig, prd_explicit, prd_dir, no_tui)`
-- `_run_headless(config)` — runs the agent loop in-process, streaming to stdout with meta/log persistence
+- `main(argv?)` — entry point: parses args, validates inputs, and runs the agent loop
+- `parse_args(argv?)` — returns `(RalphConfig, prd_explicit)`
+- `_run_cli(config)` — runs the agent loop in-process, streaming to stdout with meta/log persistence
 
 ## Responsibility Boundary
 
-Owns argument parsing, config resolution (CLI > config file > defaults), and headless execution. Delegates TUI mode to `ralph.tui` and the agent loop to `ralph.core`.
+Owns argument parsing, config resolution (CLI > config file > defaults), and execution. Delegates the agent loop to `ralph.core`.
 
 ## PRD Argument Behavior
 
-- `--prd` accepts one or more file paths.
-- `--prd` also accepts wildcard patterns (for example `"docs/prds/*/PRD.md"`).
+- `--prd` is required and accepts one or more values.
+- Each value can be a file, directory, or wildcard pattern (for example `"docs/prds/*/PRD.md"`).
+- Directory inputs prefer `README.md` / `PRD.md` and then fall back to recursive PRD discovery.
 - When `--prd` resolves to multiple files, they are passed as context files to the agent run.
+- Omitting `--prd` produces an actionable error with usage guidance.
 
 ## Read Next
 
 - [Core](../core/README.md)
-- [TUI](../tui/README.md)

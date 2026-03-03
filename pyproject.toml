@@ -9,7 +9,6 @@ requires-python = ">=3.13"
 dependencies = [
     "claude-agent-sdk>=0.1.41",
     "rich>=13.0",
-    "textual>=0.89",
 ]
 
 [project.scripts]
@@ -34,7 +33,6 @@ select = [
 ]
 ignore = [
     "ANN401",  # allow Any in signatures (json config etc.)
-    "RUF012",  # mutable class attrs — false positive on Textual BINDINGS/CSS
     "E501",    # line length — handled by formatter
 ]
 

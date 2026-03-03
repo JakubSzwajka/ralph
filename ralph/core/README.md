@@ -1,6 +1,6 @@
 # ralph/core
 
-The autonomous agent loop. Everything else (TUI, CLI, notifications) consumes this module.
+The autonomous agent loop. Everything else (CLI, notifications) consumes this module.
 
 ## Public API
 
@@ -26,5 +26,3 @@ Owns the agent loop, prompt construction, and run metadata. Does not own UI rend
 ## Read Next
 
 - [CLI](../cli/README.md)
-- [TUI](../tui/README.md)
-- [Browser](../browser/README.md)

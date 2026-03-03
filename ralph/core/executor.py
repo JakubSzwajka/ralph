@@ -1,7 +1,7 @@
-"""Unified run executor — shared logic for headless and TUI modes.
+"""Unified run executor — shared logic for the headless CLI.
 
-Both consumers provide thin callbacks for output; all RunMeta lifecycle,
-log-file management, separator formatting, and error handling lives here.
+Provides RunMeta lifecycle, log-file management, separator formatting,
+and error handling.
 """
 
 from __future__ import annotations

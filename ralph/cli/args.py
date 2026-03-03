@@ -11,20 +11,12 @@ from ralph.core import RalphConfig
 
 def parse_args(
     argv: list[str] | None = None,
-) -> tuple[RalphConfig, bool, Path | None, bool]:
-    """Parse CLI arguments and return (RalphConfig, prd_explicit, prd_dir, no_tui).
+) -> tuple[RalphConfig, bool]:
+    """Parse CLI arguments and return ``(RalphConfig, prd_explicit)``.
 
     *prd_explicit* is ``True`` when the user passed ``--prd`` on the command
-    line.  When it is ``False`` the caller should launch the interactive file
-    browser to let the user choose a PRD.
-
-    *prd_dir* is the resolved directory to scan for PRDs.  ``None`` means
-    "use the browser default (cwd/docs/prds)".  A non-``None`` value means
-    the directory was explicitly configured via ``--prd-dir`` or
-    ``prd_directory`` in the config file.
-
-    *no_tui* is ``True`` when ``--no-tui`` was passed.  The caller should
-    also force headless mode when stdout is not a TTY.
+    line.  When it is ``False`` the caller should exit with actionable usage
+    guidance since CLI mode always requires explicit PRD input.
     """
     parser = argparse.ArgumentParser(
         prog="ralph",
@@ -35,10 +27,7 @@ def parse_args(
         type=str,
         nargs="+",
         default=None,
-        help=(
-            "Path(s) to PRD files. Supports multiple files and glob patterns "
-            "(omit to use the interactive file browser)"
-        ),
+        help=("Path(s) to PRD files, PRD directories, or glob patterns (required)."),
     )
     parser.add_argument(
         "--tasks", type=Path, default=None, help="Path to tasks list or directory"
@@ -71,47 +60,17 @@ def parse_args(
         metavar="SECONDS",
         help="Minimum interval between Discord notification messages (default: 5s)",
     )
-    parser.add_argument(
-        "--prd-dir",
-        type=Path,
-        default=None,
-        metavar="PATH",
-        help=(
-            "Directory to scan for docs when using the interactive browser "
-            "(also reads prd_directory from ~/.ralph/config.json; default: docs/)"
-        ),
-    )
-    parser.add_argument(
-        "--no-tui",
-        action="store_true",
-        default=False,
-        help=(
-            "Disable the Textual TUI and use the legacy Rich output instead. "
-            "Automatically enabled when stdout is not a TTY (e.g. piped output, CI)."
-        ),
-    )
 
     args = parser.parse_args(argv)
 
-    # Track whether the user explicitly provided --prd so main() can decide
-    # whether to show the interactive browser.
+    # Track whether the user explicitly provided --prd so main() can
+    # produce an actionable error when it is missing.
     prd_explicit: bool = args.prd is not None
     context_files: list[Path] = []
     if prd_explicit:
         prd_candidates: list[Path] = []
         for raw in args.prd:
-            expanded = os.path.expanduser(raw)
-            if has_magic(expanded):
-                pattern = (
-                    expanded
-                    if Path(expanded).is_absolute()
-                    else str(args.cwd / expanded)
-                )
-                matches = sorted(Path(p) for p in glob(pattern, recursive=True))
-                prd_candidates.extend(p for p in matches if p.is_file())
-            else:
-                path = Path(expanded)
-                prd_candidates.append(path if path.is_absolute() else args.cwd / path)
+            prd_candidates.extend(_resolve_prd_candidates(raw, args.cwd))
 
         # Preserve order while dropping duplicates from overlapping globs.
         unique_candidates: list[Path] = []
@@ -166,17 +125,6 @@ def parse_args(
     else:
         iterations = int(file_config.get("iterations", _iterations_default))
 
-    # Resolve PRD scan directory: CLI flag > config file > None (use browser default)
-    if args.prd_dir is not None:
-        # User explicitly passed --prd-dir; resolve relative paths against cwd.
-        prd_dir: Path | None = (
-            args.prd_dir if args.prd_dir.is_absolute() else args.cwd / args.prd_dir
-        )
-    elif "prd_directory" in file_config:
-        prd_dir = args.cwd / file_config["prd_directory"]
-    else:
-        prd_dir = None
-
     return (
         RalphConfig(
             prd=prd,
@@ -191,6 +139,49 @@ def parse_args(
             discord_min_interval=discord_min_interval,
         ),
         prd_explicit,
-        prd_dir,
-        args.no_tui,
     )
+
+
+def _resolve_prd_candidates(raw: str, cwd: Path) -> list[Path]:
+    """Resolve one --prd value to one or more markdown files.
+
+    Supports files, globs, and directories. Directory resolution prefers
+    a local README.md/PRD.md and falls back to recursive PRD discovery.
+    """
+    expanded = os.path.expanduser(raw)
+
+    if has_magic(expanded):
+        pattern = expanded if Path(expanded).is_absolute() else str(cwd / expanded)
+        return [
+            p
+            for p in sorted(Path(p) for p in glob(pattern, recursive=True))
+            if p.is_file()
+        ]
+
+    path = Path(expanded)
+    resolved = path if path.is_absolute() else cwd / path
+
+    if resolved.is_dir():
+        direct = [resolved / "README.md", resolved / "PRD.md"]
+        direct_matches = [p for p in direct if p.is_file()]
+        if direct_matches:
+            return direct_matches
+
+        recursive: list[Path] = []
+        recursive.extend(
+            sorted(p for p in resolved.glob("**/README.md") if p.is_file())
+        )
+        recursive.extend(sorted(p for p in resolved.glob("**/PRD.md") if p.is_file()))
+        if recursive:
+            # Preserve discovery order while dropping duplicates.
+            unique_recursive: list[Path] = []
+            seen: set[str] = set()
+            for p in recursive:
+                key = str(p)
+                if key in seen:
+                    continue
+                seen.add(key)
+                unique_recursive.append(p)
+            return unique_recursive
+
+    return [resolved]

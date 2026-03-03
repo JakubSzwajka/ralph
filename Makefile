@@ -22,5 +22,5 @@ ci: check ## Alias for check (CI pipeline)
 install: ## Install ralph globally via uv tool
 	uv tool install . --editable
 
-run: ## Launch ralph TUI
+run: ## Launch ralph CLI
 	uv run ralph $(ARGS)

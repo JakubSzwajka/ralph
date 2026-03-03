@@ -1,6 +1,6 @@
 """ralph.core — the autonomous agent loop.
 
-This package is the heart of ralph. Everything else (TUI, CLI, Discord)
+This package is the heart of ralph. Everything else (CLI, Discord)
 is a consumer of this module.
 """
 
